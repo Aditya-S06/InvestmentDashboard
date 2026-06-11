@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#0a0a0f"/>
+  <path d="M40 80h176v16H40z" fill="#00c853" opacity="0.3"/>
+  <path d="M40 120h176v16H40z" fill="#00c853" opacity="0.3"/>
+  <path d="M40 160h176v16H40z" fill="#00c853" opacity="0.3"/>
+  <circle cx="60" cy="88" r="6" fill="#00c853"/>
+  <circle cx="100" cy="88" r="6" fill="#00c853"/>
+  <circle cx="196" cy="88" r="6" fill="#00c853"/>
+  <path d="M60 88L80 128L100 88" stroke="#00c853" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M140 168L160 128L180 148L196 128" stroke="#00c853" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="128" y="230" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#00c853" text-anchor="middle">MI</text>
+</svg>

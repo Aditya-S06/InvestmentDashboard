@@ -1,0 +1,80 @@
+export const UNCATEGORIZED_SECTOR = 'Uncategorized';
+
+export const WATCHLIST_SECTORS: { name: string; tickers: string[] }[] = [
+  {
+    name: 'AI Power & Infrastructure',
+    tickers: ['FLNC', 'NNE', 'IREN', 'APLD', 'WULF', 'BE'],
+  },
+  {
+    name: 'Space Infrastructure & SpaceX Repricing Basket',
+    tickers: ['FTCF', 'RDW', 'MNTS', 'SIDU', 'RKLB'],
+  },
+  {
+    name: 'Enterprise Software & Mega-Cap Tech',
+    tickers: ['CRM', 'NOW', 'ADBE', 'ZI', 'BBAI', 'SNOW'],
+  },
+  {
+    name: 'AI Semiconductor Hardware',
+    tickers: ['NVDA', 'AVGO', 'MU', 'MRVL'],
+  },
+  {
+    name: 'Quantum Computing',
+    tickers: ['IONQ', 'RGTI', 'QBTS'],
+  },
+  {
+    name: 'Bioactive AI & Healthcare',
+    tickers: ['HIMS', 'HYFT', 'OABI'],
+  },
+  {
+    name: 'Drone & Defense Technology',
+    tickers: ['UMAC', 'AVAV', 'KTOS', 'ONDS'],
+  },
+];
+
+export const SECTOR_ORDER: string[] = [
+  ...WATCHLIST_SECTORS.map((s) => s.name),
+  UNCATEGORIZED_SECTOR,
+];
+
+const TICKER_TO_SECTOR = new Map<string, string>();
+for (const sector of WATCHLIST_SECTORS) {
+  for (const ticker of sector.tickers) {
+    TICKER_TO_SECTOR.set(ticker.toUpperCase(), sector.name);
+  }
+}
+
+export function sectorForTicker(ticker: string): string {
+  return TICKER_TO_SECTOR.get(ticker.toUpperCase()) ?? UNCATEGORIZED_SECTOR;
+}
+
+export function sectorSortIndex(sector: string | null | undefined): number {
+  const idx = SECTOR_ORDER.indexOf(sector ?? UNCATEGORIZED_SECTOR);
+  return idx === -1 ? SECTOR_ORDER.length : idx;
+}
+
+export interface WatchlistLike {
+  ticker: string;
+  sector?: string | null;
+}
+
+export function groupWatchlistBySector<T extends WatchlistLike>(
+  items: T[],
+): { sector: string; items: T[] }[] {
+  const groups = new Map<string, T[]>();
+
+  for (const item of items) {
+    const sector = item.sector || sectorForTicker(item.ticker);
+    const list = groups.get(sector) ?? [];
+    list.push(item);
+    groups.set(sector, list);
+  }
+
+  return SECTOR_ORDER.filter((name) => groups.has(name)).map((sector) => ({
+    sector,
+    items: (groups.get(sector) ?? []).sort((a, b) => a.ticker.localeCompare(b.ticker)),
+  }));
+}
+
+export const ALL_SECTOR_TICKERS = WATCHLIST_SECTORS.flatMap((s) =>
+  s.tickers.map((ticker) => ({ ticker, sector: s.name })),
+);
