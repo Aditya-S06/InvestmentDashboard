@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { groupWatchlistBySector, sectorForTicker, sectorSortIndex } from '@/lib/watchlist-sectors';
-import { upsertSectorWatchlist } from '@/lib/seed-watchlist';
+import { upsertDefaultWatchlist } from '@/lib/seed-watchlist';
 
 function serializeWatchlistItem(i: { id: string; ticker: string; sector: string | null; createdAt: Date }) {
   return {
@@ -16,7 +16,7 @@ function serializeWatchlistItem(i: { id: string; ticker: string; sector: string 
   };
 }
 
-/** POST — load or refresh all 7 sector baskets for the signed-in user. */
+/** POST — load or refresh the starter watchlist for the signed-in user. */
 export async function POST() {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -24,7 +24,7 @@ export async function POST() {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const added = await upsertSectorWatchlist(userId);
+    const added = await upsertDefaultWatchlist(userId);
     const items = await prisma.watchlist.findMany({ where: { userId } });
     const serialized = items.map(serializeWatchlistItem).sort((a, b) => {
       const sectorDiff =

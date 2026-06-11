@@ -11,9 +11,8 @@ import { DetailModal } from './detail-modal';
 import { SettingsModal } from './settings-modal';
 import { Activity, LogOut, Settings, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 import type { TickerCardData, WatchlistItem, MacroData } from '@/lib/types';
+import { DEFAULT_WATCHLIST_TICKERS } from '@/lib/default-watchlist';
 import { sectorForTicker } from '@/lib/watchlist-sectors';
-
-const DEFAULT_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM'];
 
 export function DashboardClient() {
   const { data: session, status } = useSession() || {};
@@ -64,7 +63,7 @@ export function DashboardClient() {
     }
   }, []);
 
-  // Fetch watchlist (auto-seeds sector baskets when empty)
+  // Fetch watchlist (auto-seeds starter tickers when empty)
   const fetchWatchlist = useCallback(async () => {
     try {
       let res = await fetch('/api/watchlist', { cache: 'no-store' });
@@ -102,7 +101,7 @@ export function DashboardClient() {
 
     // Load default tickers
     setLoadingTickers(true);
-    Promise.all(DEFAULT_TICKERS.map(fetchTicker)).then((results) => {
+    Promise.all(DEFAULT_WATCHLIST_TICKERS.map(fetchTicker)).then((results) => {
       const valid = (results ?? []).filter((r): r is TickerCardData => r !== null);
       setTickers(valid);
       setLoadingTickers(false);

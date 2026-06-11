@@ -1,35 +1,7 @@
 export const UNCATEGORIZED_SECTOR = 'Uncategorized';
 
-export const WATCHLIST_SECTORS: { name: string; tickers: string[] }[] = [
-  {
-    name: 'AI Power & Infrastructure',
-    tickers: ['FLNC', 'NNE', 'IREN', 'APLD', 'WULF', 'BE'],
-  },
-  {
-    name: 'Space Infrastructure & SpaceX Repricing Basket',
-    tickers: ['FTCF', 'RDW', 'MNTS', 'SIDU', 'RKLB'],
-  },
-  {
-    name: 'Enterprise Software & Mega-Cap Tech',
-    tickers: ['CRM', 'NOW', 'ADBE', 'ZI', 'BBAI', 'SNOW'],
-  },
-  {
-    name: 'AI Semiconductor Hardware',
-    tickers: ['NVDA', 'AVGO', 'MU', 'MRVL'],
-  },
-  {
-    name: 'Quantum Computing',
-    tickers: ['IONQ', 'RGTI', 'QBTS'],
-  },
-  {
-    name: 'Bioactive AI & Healthcare',
-    tickers: ['HIMS', 'HYFT', 'OABI'],
-  },
-  {
-    name: 'Drone & Defense Technology',
-    tickers: ['UMAC', 'AVAV', 'KTOS', 'ONDS'],
-  },
-];
+/** Optional sector labels for grouping; users assign sectors when adding tickers. */
+export const WATCHLIST_SECTORS: { name: string; tickers: string[] }[] = [];
 
 export const SECTOR_ORDER: string[] = [
   ...WATCHLIST_SECTORS.map((s) => s.name),
@@ -74,7 +46,3 @@ export function groupWatchlistBySector<T extends WatchlistLike>(
     items: (groups.get(sector) ?? []).sort((a, b) => a.ticker.localeCompare(b.ticker)),
   }));
 }
-
-export const ALL_SECTOR_TICKERS = WATCHLIST_SECTORS.flatMap((s) =>
-  s.tickers.map((ticker) => ({ ticker, sector: s.name })),
-);

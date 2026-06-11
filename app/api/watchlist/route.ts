@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { groupWatchlistBySector, sectorForTicker, sectorSortIndex } from '@/lib/watchlist-sectors';
-import { ensureSectorWatchlist } from '@/lib/seed-watchlist';
+import { ensureDefaultWatchlist } from '@/lib/seed-watchlist';
 
 function serializeWatchlistItem(i: { id: string; ticker: string; sector: string | null; createdAt: Date }) {
   return {
@@ -29,7 +29,7 @@ export async function GET() {
     });
 
     if (items.length === 0) {
-      await ensureSectorWatchlist(userId);
+      await ensureDefaultWatchlist(userId);
       items = await prisma.watchlist.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },

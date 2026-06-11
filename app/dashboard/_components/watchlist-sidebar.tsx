@@ -84,7 +84,7 @@ export function WatchlistSidebar({ watchlist, prices, onSelectTicker, onRemove }
           <div className="flex flex-col items-center justify-center h-40 px-4 gap-2">
             <Star className="w-8 h-8 text-muted-foreground/30" />
             <p className="text-xs text-muted-foreground text-center">
-              Loading sector baskets… refresh the page if this stays empty.
+              Loading watchlist… refresh the page if this stays empty.
             </p>
           </div>
         ) : (

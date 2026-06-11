@@ -1,16 +1,17 @@
 import { prisma } from '@/lib/prisma';
-import { ALL_SECTOR_TICKERS } from '@/lib/watchlist-sectors';
+import { DEFAULT_WATCHLIST_TICKERS } from '@/lib/default-watchlist';
+import { sectorForTicker } from '@/lib/watchlist-sectors';
 
-/** Ensures the default sector baskets exist for a user. Returns true if items were added. */
-export async function ensureSectorWatchlist(userId: string): Promise<boolean> {
+/** Ensures the starter watchlist exists for a user. Returns true if items were added. */
+export async function ensureDefaultWatchlist(userId: string): Promise<boolean> {
   const count = await prisma.watchlist.count({ where: { userId } });
   if (count > 0) return false;
 
   await prisma.watchlist.createMany({
-    data: ALL_SECTOR_TICKERS.map(({ ticker, sector }) => ({
+    data: DEFAULT_WATCHLIST_TICKERS.map((ticker) => ({
       userId,
       ticker,
-      sector,
+      sector: sectorForTicker(ticker),
     })),
     skipDuplicates: true,
   });
@@ -18,14 +19,15 @@ export async function ensureSectorWatchlist(userId: string): Promise<boolean> {
   return true;
 }
 
-/** Upserts all sector basket tickers (safe to run multiple times). */
-export async function upsertSectorWatchlist(userId: string): Promise<number> {
-  for (const { ticker, sector } of ALL_SECTOR_TICKERS) {
+/** Upserts the starter watchlist tickers (safe to run multiple times). */
+export async function upsertDefaultWatchlist(userId: string): Promise<number> {
+  for (const ticker of DEFAULT_WATCHLIST_TICKERS) {
+    const sector = sectorForTicker(ticker);
     await prisma.watchlist.upsert({
       where: { userId_ticker: { userId, ticker } },
       update: { sector },
       create: { userId, ticker, sector },
     });
   }
-  return ALL_SECTOR_TICKERS.length;
+  return DEFAULT_WATCHLIST_TICKERS.length;
 }

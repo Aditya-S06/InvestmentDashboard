@@ -1,12 +1,12 @@
 # Investment Dashboard
 
-A self-hosted financial intelligence dashboard for tracking equities across themed sector baskets. Built for investors who want a consolidated view of price action, sentiment signals, risk metrics, and macro context—without relying on a proprietary hosted platform.
+A self-hosted financial intelligence dashboard for tracking equities and building a personal watchlist. Built for investors who want a consolidated view of price action, sentiment signals, risk metrics, and macro context—without relying on a proprietary hosted platform.
 
 Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via `yfinance`. User accounts, watchlists, and settings are stored in PostgreSQL.
 
 ## Features
 
-- **Sector-organized watchlist** — Seven curated baskets (AI power, space, enterprise software, semiconductors, quantum, bioactive healthcare, drone & defense) with collapsible groups in the sidebar.
+- **Watchlist** — Starter mega-cap symbols (AAPL, MSFT, GOOGL, and peers) on first login; add or remove tickers and group them in the sidebar.
 - **Ticker grid** — Real-time quotes, day change, sentiment bar, and risk badge for tracked symbols.
 - **Detail modal** — Price history, RSI/MACD, analyst consensus, news with credibility tags, Kelly position sizing, and exit alerts.
 - **Macro ribbon** — VIX, S&P 500, 10Y Treasury, Fed Funds, and US market open/closed status.
@@ -32,21 +32,6 @@ Browser → Next.js (dashboard, auth)
               ├── /api/watchlist/*  →  Prisma  →  PostgreSQL
               └── /api/auth/*  →  NextAuth  →  PostgreSQL
 ```
-
-## Sector baskets
-
-| Sector | Symbols |
-|--------|---------|
-| AI Power & Infrastructure | FLNC, NNE, IREN, APLD, WULF, BE |
-| Space Infrastructure & SpaceX Repricing Basket | FTCF, RDW, MNTS, SIDU, RKLB |
-| Enterprise Software & Mega-Cap Tech | CRM, NOW, ADBE, ZI, BBAI, SNOW |
-| AI Semiconductor Hardware | NVDA, AVGO, MU, MRVL |
-| Quantum Computing | IONQ, RGTI, QBTS |
-| Bioactive AI & Healthcare | HIMS, HYFT, OABI |
-| Drone & Defense Technology | UMAC, AVAV, KTOS, ONDS |
-
-New users receive these baskets automatically on first login. Symbols starred from the main grid are filed under **Uncategorized** unless they match a known basket.
-
 ## Getting started
 
 ### Prerequisites
@@ -101,7 +86,7 @@ Change or remove this user before any production deployment.
 | `npm run db:up` | Start Postgres container |
 | `npm run db:down` | Stop Postgres container |
 | `npm run db:push` | Apply Prisma schema |
-| `npm run db:seed` | Seed demo user and sector watchlist |
+| `npm run db:seed` | Seed demo user and starter watchlist |
 | `npm run setup` | `prisma generate` + `db push` + `seed` |
 
 ### Without Docker

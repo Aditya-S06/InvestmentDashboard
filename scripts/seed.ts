@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { upsertSectorWatchlist } from '../lib/seed-watchlist';
+import { upsertDefaultWatchlist } from '../lib/seed-watchlist';
 
 const prisma = new PrismaClient();
 
@@ -17,8 +17,8 @@ async function main() {
     },
   });
 
-  const count = await upsertSectorWatchlist(user.id);
-  console.log(`Seeded ${count} sector watchlist tickers for john@doe.com`);
+  const count = await upsertDefaultWatchlist(user.id);
+  console.log(`Seeded ${count} starter watchlist tickers for john@doe.com`);
 }
 
 main()
