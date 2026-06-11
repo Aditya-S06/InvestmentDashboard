@@ -9,7 +9,7 @@ import { TickerGrid } from './ticker-grid';
 import { WatchlistSidebar } from './watchlist-sidebar';
 import { DetailModal } from './detail-modal';
 import { SettingsModal } from './settings-modal';
-import { Activity, LogOut, Settings, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Activity, LogOut, Settings, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 import type { TickerCardData, WatchlistItem, MacroData } from '@/lib/types';
 import { sectorForTicker } from '@/lib/watchlist-sectors';
 
@@ -186,6 +186,13 @@ export function DashboardClient() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => router.push('/dashboard/insights')}
+              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="AI Insights"
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
             <button
               onClick={() => setShowSettings(true)}
               className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"

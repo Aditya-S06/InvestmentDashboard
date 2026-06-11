@@ -65,6 +65,16 @@ home/
 .turbo
 .cursor/
 
+# Local-only docs (not for the public repo)
+AGENTS.md
+STYLE_GUIDE.md
+styles.md
+
+# AI Insights harness (confidential agent instructions — keep local only)
+lib/insights/harness/system.md
+lib/insights/harness/output.md
+lib/insights/harness/skills/
+
 # Certificates & keys
 *.pem
 *.key
