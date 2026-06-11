@@ -75,6 +75,12 @@ lib/insights/harness/system.md
 lib/insights/harness/output.md
 lib/insights/harness/skills/
 
+# AI Insights core (routing, config, orchestration — keep local only)
+lib/insights/access.ts
+lib/insights/config.ts
+lib/insights/context-builder.ts
+lib/insights/orchestrator.ts
+
 # Certificates & keys
 *.pem
 *.key
