@@ -1,3 +1,7 @@
+/**
+ * Copy to load-harness.ts and customize prompt assembly.
+ * load-harness.ts is gitignored and never committed.
+ */
 import 'server-only';
 
 import { readdir, readFile } from 'fs/promises';
@@ -27,7 +31,6 @@ export async function buildSystemPrompt(context: InsightContext): Promise<string
       null,
       2,
     ),
-    'If the user asks for high-potential stocks, research enough to return 5-10 picks when possible. Include whether each pick is already in the watchlist.',
   ].filter(Boolean);
 
   return sections.join('\n\n');

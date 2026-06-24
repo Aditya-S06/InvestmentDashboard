@@ -3,11 +3,14 @@ import sys
 import json
 import math
 from datetime import datetime, timedelta
+from typing import Any, Dict
 
 try:
+    import numpy as np
+    import pandas as pd
     import yfinance as yf
 except ImportError:
-    print(json.dumps({"error": "yfinance not installed"}))
+    print(json.dumps({"error": "required market data dependencies not installed"}))
     sys.exit(1)
 
 def safe_float(val, default=0.0):
@@ -81,6 +84,84 @@ def get_historical(symbol, period="6mo"):
         return records
     except:
         return []
+
+def compute_technical_indicators(hist: pd.DataFrame) -> Dict[str, Any]:
+    """Robust technical state for AI insights. Returns None on insufficient history."""
+    if hist.empty or len(hist) < 20:
+        return {"rsi_14": None, "macd_histogram": None, "bollinger_pct_b": None, "above_sma50": None}
+
+    close = hist["Close"].astype(float)
+
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    rsi = (100 - (100 / (1 + rs))).iloc[-1]
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist = (macd_line - signal).iloc[-1]
+
+    sma20 = close.rolling(20).mean()
+    std20 = close.rolling(20).std()
+    upper = sma20 + 2 * std20
+    lower = sma20 - 2 * std20
+    band_width = upper.iloc[-1] - lower.iloc[-1]
+    bb_pos = (close.iloc[-1] - lower.iloc[-1]) / band_width if pd.notna(band_width) and band_width != 0 else 0.5
+
+    sma50 = close.rolling(50).mean().iloc[-1] if len(close) >= 50 else None
+    above_sma50 = bool(close.iloc[-1] > sma50) if sma50 is not None and pd.notna(sma50) else None
+
+    return {
+        "rsi_14": round(float(rsi), 1) if pd.notna(rsi) else None,
+        "macd_histogram": round(float(macd_hist), 4) if pd.notna(macd_hist) else None,
+        "bollinger_pct_b": round(float(bb_pos), 2) if pd.notna(bb_pos) else None,
+        "above_sma50": above_sma50,
+    }
+
+def compute_risk_metrics(hist: pd.DataFrame) -> Dict[str, Any]:
+    """Annualized volatility, max drawdown, and historical VaR(95%)."""
+    if hist.empty or len(hist) < 30:
+        return {"ann_vol_pct": None, "max_drawdown_pct": None, "hist_var_95_pct": None}
+
+    rets = hist["Close"].astype(float).pct_change().dropna()
+    if rets.empty:
+        return {"ann_vol_pct": None, "max_drawdown_pct": None, "hist_var_95_pct": None}
+
+    ann_vol = rets.std() * np.sqrt(252)
+    cum = (1 + rets).cumprod()
+    peak = cum.cummax()
+    drawdown = (cum - peak) / peak
+    max_drawdown = drawdown.min()
+    var_95 = np.percentile(rets, 5)
+
+    return {
+        "ann_vol_pct": round(float(ann_vol * 100), 1) if pd.notna(ann_vol) else None,
+        "max_drawdown_pct": round(float(max_drawdown * 100), 1) if pd.notna(max_drawdown) else None,
+        "hist_var_95_pct": round(float(var_95 * 100), 2) if pd.notna(var_95) else None,
+    }
+
+def simple_statistical_forecast(hist: pd.DataFrame, horizon_days: int = 5) -> Dict[str, Any]:
+    """Naive but transparent forward expectation + uncertainty. Do not treat as a primary signal."""
+    if hist.empty or len(hist) < 20:
+        return {"expected_return_pct": None, "std_err_pct": None, "method": "insufficient_history"}
+
+    rets = hist["Close"].astype(float).pct_change().dropna()
+    if rets.empty:
+        return {"expected_return_pct": None, "std_err_pct": None, "method": "insufficient_history"}
+
+    mu = rets.mean()
+    sigma = rets.std()
+    exp_ret = mu * horizon_days
+
+    return {
+        "expected_return_pct": round(float(exp_ret * 100), 2) if pd.notna(exp_ret) else None,
+        "std_err_pct": round(float(sigma * np.sqrt(horizon_days) * 100), 1) if pd.notna(sigma) else None,
+        "method": "historical_mean",
+        "horizon_days": horizon_days,
+    }
 
 def get_analyst_data(symbol):
     try:
@@ -613,12 +694,34 @@ if __name__ == "__main__":
         print(json.dumps(get_trends(symbol)))
     elif action == "full":
         # Full data for detail view
+        try:
+            hist = yf.Ticker(symbol).history(period="1y")
+        except Exception:
+            hist = pd.DataFrame()
+
+        try:
+            quant_indicators = compute_technical_indicators(hist)
+            risk_metrics = compute_risk_metrics(hist)
+            predictive = simple_statistical_forecast(hist)
+        except Exception:
+            quant_indicators = {"rsi_14": None, "macd_histogram": None, "bollinger_pct_b": None, "above_sma50": None}
+            risk_metrics = {"ann_vol_pct": None, "max_drawdown_pct": None, "hist_var_95_pct": None}
+            predictive = {
+                "expected_return_pct": None,
+                "std_err_pct": None,
+                "method": "computation_failed",
+                "horizon_days": 5,
+            }
+
         result = {
             "ticker": get_ticker_data(symbol),
             "analyst": get_analyst_data(symbol),
             "sentiment": compute_sentiment(symbol),
             "risk": compute_risk_score(symbol),
             "technicals": compute_technicals(symbol),
+            "quant_indicators": quant_indicators,
+            "risk_metrics": risk_metrics,
+            "predictive": predictive,
             "position": compute_position_sizing(symbol),
             "exit": get_exit_signals(symbol),
             "news": get_news(symbol),

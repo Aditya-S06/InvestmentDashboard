@@ -69,17 +69,30 @@ home/
 AGENTS.md
 STYLE_GUIDE.md
 styles.md
+INSIGHTS_AGENT_CONTEXT.md
 
 # AI Insights harness (confidential agent instructions — keep local only)
 lib/insights/harness/system.md
 lib/insights/harness/output.md
 lib/insights/harness/skills/
+lib/insights/harness/load-harness.ts
 
-# AI Insights core (routing, config, orchestration — keep local only)
+# AI Insights core (routing, config, orchestration, tools — keep local only)
 lib/insights/access.ts
 lib/insights/config.ts
 lib/insights/context-builder.ts
 lib/insights/orchestrator.ts
+lib/insights/tools.ts
+lib/insights/rate-limit.ts
+
+# AI Insights API routes (access model, key storage — keep local only)
+app/api/insights/access/route.ts
+app/api/settings/apikeys/route.ts
+
+# Internal planning / agent notes (never commit)
+improvment.md
+improvement.md
+*-internal.md
 
 # Certificates & keys
 *.pem

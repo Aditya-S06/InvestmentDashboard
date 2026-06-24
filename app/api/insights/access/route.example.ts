@@ -1,9 +1,12 @@
+/**
+ * Copy to route.ts — insights access probe (+ optional admin user list).
+ * route.ts is gitignored and never committed.
+ */
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
 import {
   isInsightsAdmin,
   resolveOpenRouterKey,
@@ -22,37 +25,12 @@ export async function GET() {
   const isAdmin = isInsightsAdmin(email, role);
   const resolved = await resolveOpenRouterKey(userId, email, role);
 
-  const payload: Record<string, unknown> = {
+  return NextResponse.json({
     hasAccess: !!resolved,
     source: resolved?.source ?? null,
     isAdmin,
     role: role ?? 'user',
     adminKeyConfigured: isAdmin && !!process.env.OPENROUTER_API_KEY?.trim(),
-  };
-
-  if (isAdmin) {
-    const users = await prisma.user.findMany({
-      select: {
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        _count: { select: { insightSessions: true, apiKeys: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    payload.userCount = users.length;
-    payload.users = users.map((user) => ({
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      isInsightsAdmin: isInsightsAdmin(user.email, user.role),
-      insightSessions: user._count.insightSessions,
-      apiKeyCount: user._count.apiKeys,
-      createdAt: user.createdAt.toISOString(),
-    }));
-  }
-
-  return NextResponse.json(payload);
+    // TODO: add admin-only user enumeration only if you need it locally
+  });
 }
