@@ -9,6 +9,7 @@ Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via
 - **Watchlist** — Starter mega-cap symbols (AAPL, MSFT, GOOGL, and peers) on first login; add or remove tickers and group them in the sidebar.
 - **Ticker grid** — Real-time quotes, day change, sentiment bar, and risk badge for tracked symbols.
 - **Detail modal** — Price history, RSI/MACD, analyst consensus, news with credibility tags, Kelly position sizing, and exit alerts.
+- **Quant layer** (`/api/market/full`) — Pre-computed `quant_indicators`, `risk_metrics`, `predictive` forecast, and `strategy_signals` (regime, ATR sizing) from `scripts/market_data.py`; legacy `technicals` and `risk.score` unchanged.
 - **Macro ribbon** — VIX, S&P 500, 10Y Treasury, Fed Funds, and US market open/closed status.
 - **Ticker search** — Autocomplete and direct symbol entry.
 - **Authentication** — Email/password sign-in with NextAuth.js; per-user watchlists persisted in the database.
@@ -102,6 +103,19 @@ Install PostgreSQL, create a database (e.g. `market_intel`), set `DATABASE_URL` 
 | `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`) |
 
 See [`.env.example`](.env.example) for a template.
+
+### Market data (`full` command)
+
+`GET /api/market/full?symbol=AAPL` returns the standard bundle plus optional quant keys:
+
+| Key | Fields |
+|-----|--------|
+| `quant_indicators` | `rsi_14`, `macd_histogram`, `bollinger_pct_b`, `above_sma50` |
+| `risk_metrics` | `ann_vol_pct`, `max_drawdown_pct`, `hist_var_95_pct` |
+| `predictive` | `expected_return_pct`, `std_err_pct`, `method`, `horizon_days` |
+| `strategy_signals` | `regime`, `primary_signal`, `atr_value`, `suggested_risk_pct`, `correlation_filter_active`, `notes` |
+
+CLI: `python scripts/market_data.py full AAPL`
 
 ## Disclaimer
 

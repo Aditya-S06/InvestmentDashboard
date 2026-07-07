@@ -3,7 +3,7 @@ import sys
 import json
 import math
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 try:
     import numpy as np
@@ -161,6 +161,133 @@ def simple_statistical_forecast(hist: pd.DataFrame, horizon_days: int = 5) -> Di
         "std_err_pct": round(float(sigma * np.sqrt(horizon_days) * 100), 1) if pd.notna(sigma) else None,
         "method": "historical_mean",
         "horizon_days": horizon_days,
+    }
+
+def compute_rsi_14(hist: pd.DataFrame) -> Optional[float]:
+    """RSI(14) on close. Returns None on insufficient bars."""
+    if hist.empty or len(hist) < 15:
+        return None
+    close = hist["Close"].astype(float)
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    rsi = (100 - (100 / (1 + rs))).iloc[-1]
+    return float(rsi) if pd.notna(rsi) else None
+
+def compute_atr(df: pd.DataFrame, period: int = 14) -> Optional[float]:
+    """Average True Range (simple). Returns None if < period+1 bars.
+
+    ATR sizing enforces constant $ risk across volatility regimes (core of the
+    strategy): position size = account_risk / ATR keeps dollar risk stable
+    whether the asset is quiet or violent.
+    """
+    if df.empty or len(df) < period + 1:
+        return None
+    high = df['High'].astype(float)
+    low = df['Low'].astype(float)
+    close = df['Close'].astype(float)
+    tr = pd.concat([
+        high - low,
+        (high - close.shift(1)).abs(),
+        (low - close.shift(1)).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(window=period).mean().iloc[-1]
+    return float(atr) if pd.notna(atr) else None
+
+def compute_rolling_correlation(symbols_data: Dict[str, pd.DataFrame], window: int = 20) -> Dict[str, float]:
+    """Pairwise correlation of close log returns over the trailing window.
+
+    Used to drive correlation_filter_active: highly correlated risk-on longs
+    (e.g. SPX vs NDX both long) concentrate exposure, so the filter prevents
+    over-exposure in risk-on regimes. Returns e.g. {"SPX_NDX": 0.87} or {}
+    on insufficient data.
+    """
+    returns = {}
+    for sym, df in symbols_data.items():
+        if df is None or df.empty or len(df) < window + 1:
+            continue
+        close = df['Close'].astype(float)
+        returns[sym] = np.log(close / close.shift(1)).dropna().tail(window)
+
+    symbols = sorted(returns.keys())
+    if len(symbols) < 2:
+        return {}
+
+    result = {}
+    for i in range(len(symbols)):
+        for j in range(i + 1, len(symbols)):
+            a, b = symbols[i], symbols[j]
+            aligned = pd.concat([returns[a], returns[b]], axis=1, join='inner').dropna()
+            if len(aligned) < window // 2:
+                continue
+            corr = aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
+            if pd.notna(corr):
+                result[f"{a}_{b}"] = round(float(corr), 2)
+    return result
+
+def _infer_asset_class(asset_hint: Optional[str]) -> str:
+    """Map a symbol or explicit hint to 'crypto' | 'commodity' | 'index'."""
+    hint = str(asset_hint or "").upper()
+    if hint in ("CRYPTO",) or "BTC" in hint or "ETH" in hint or hint.endswith("-USD"):
+        return "crypto"
+    if hint in ("COMMODITY", "GOLD", "OIL", "GC", "CL") or hint.endswith("=F"):
+        return "commodity"
+    return "index"
+
+def detect_regime_and_signal(hist: pd.DataFrame, asset_hint: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Minimal viable regime-aware logic (extensible).
+    asset_hint: 'index' | 'crypto' | 'commodity' | a raw symbol (auto-detected).
+    Returns dict matching the strategy_signals contract.
+
+    Asset-class branching matches observed autocorrelation profiles: indices
+    mean-revert on short horizons, crypto trends on momentum, commodities show
+    cleaner higher-timeframe trends.
+    Rules (do not invent new indicators):
+      - index (15m logic approximated on daily for MVP): mean-reversion bias if |RSI-50| > 15
+      - crypto: momentum if price > SMA50 and rising
+      - commodity: trend if price > SMA200
+    Always include atr_value and suggested_risk_pct=0.01 (ATR-normalized constant risk).
+    """
+    if hist.empty or len(hist) < 50:
+        return {"regime": "insufficient_data", "primary_signal": "neutral", "atr_value": None,
+                "suggested_risk_pct": 0.01, "correlation_filter_active": False, "notes": "Insufficient history"}
+
+    close_series = hist['Close'].astype(float)
+    close = float(close_series.iloc[-1])
+    sma50 = float(close_series.rolling(50).mean().iloc[-1])
+    sma200 = float(close_series.rolling(200).mean().iloc[-1]) if len(hist) >= 200 else sma50
+    rsi = compute_rsi_14(hist)
+    atr = compute_atr(hist)
+
+    regime = "mean_reversion"
+    signal = "neutral"
+    # correlation_filter_active stub prevents over-exposure in risk-on regimes;
+    # cross-symbol wiring (compute_rolling_correlation) arrives with the simulator.
+    corr_active = False
+
+    asset_class = _infer_asset_class(asset_hint)
+    if asset_class == "crypto":
+        regime = "momentum"
+        signal = "long" if close > sma50 and float(close_series.iloc[-5]) < close else "neutral"
+    elif asset_class == "commodity":
+        regime = "trend_following"
+        signal = "long" if close > sma200 else "neutral"
+    else:  # default index / equity
+        if rsi is not None and abs(rsi - 50) > 15:
+            regime = "mean_reversion"
+            signal = "short" if rsi > 65 else ("long" if rsi < 35 else "neutral")
+
+    notes = f"Regime {regime} on {len(hist)} bars. ATR used for sizing."
+
+    return {
+        "regime": regime,
+        "primary_signal": signal,
+        "atr_value": round(atr, 4) if atr is not None else None,
+        "suggested_risk_pct": 0.01,
+        "correlation_filter_active": corr_active,
+        "notes": notes
     }
 
 def get_analyst_data(symbol):
@@ -703,7 +830,9 @@ if __name__ == "__main__":
             quant_indicators = compute_technical_indicators(hist)
             risk_metrics = compute_risk_metrics(hist)
             predictive = simple_statistical_forecast(hist)
-        except Exception:
+            strategy_signals = detect_regime_and_signal(hist, asset_hint=symbol)
+        except Exception as e:
+            print(f"Quant/strategy computation failed for {symbol}: {e}", file=sys.stderr)
             quant_indicators = {"rsi_14": None, "macd_histogram": None, "bollinger_pct_b": None, "above_sma50": None}
             risk_metrics = {"ann_vol_pct": None, "max_drawdown_pct": None, "hist_var_95_pct": None}
             predictive = {
@@ -711,6 +840,14 @@ if __name__ == "__main__":
                 "std_err_pct": None,
                 "method": "computation_failed",
                 "horizon_days": 5,
+            }
+            strategy_signals = {
+                "regime": "insufficient_data",
+                "primary_signal": "neutral",
+                "atr_value": None,
+                "suggested_risk_pct": 0.01,
+                "correlation_filter_active": False,
+                "notes": str(e)[:200],
             }
 
         result = {
@@ -722,6 +859,7 @@ if __name__ == "__main__":
             "quant_indicators": quant_indicators,
             "risk_metrics": risk_metrics,
             "predictive": predictive,
+            "strategy_signals": strategy_signals,
             "position": compute_position_sizing(symbol),
             "exit": get_exit_signals(symbol),
             "news": get_news(symbol),

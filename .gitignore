@@ -70,6 +70,9 @@ AGENTS.md
 STYLE_GUIDE.md
 styles.md
 INSIGHTS_AGENT_CONTEXT.md
+CODEBASE_CONTEXT.md
+plan_insights_regime_engine.md
+plan_*.md
 
 # AI Insights harness (confidential agent instructions — keep local only)
 lib/insights/harness/system.md
@@ -93,6 +96,11 @@ app/api/settings/apikeys/route.ts
 improvment.md
 improvement.md
 *-internal.md
+
+# Local automation / agent memory (never commit)
+MEMORY.md
+scripts/local_strategy_agent.py
+scripts/_smoke*.py
 
 # Certificates & keys
 *.pem

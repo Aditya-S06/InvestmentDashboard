@@ -102,12 +102,45 @@ export interface MacroData {
   marketStatus: string;
 }
 
+export interface QuantIndicators {
+  rsi_14: number | null;
+  macd_histogram: number | null;
+  bollinger_pct_b: number | null;
+  above_sma50: boolean | null;
+}
+
+export interface RiskMetrics {
+  ann_vol_pct: number | null;
+  max_drawdown_pct: number | null;
+  hist_var_95_pct: number | null;
+}
+
+export interface PredictiveForecast {
+  expected_return_pct: number | null;
+  std_err_pct: number | null;
+  method: string;
+  horizon_days?: number;
+}
+
+export interface StrategySignals {
+  regime: 'mean_reversion' | 'momentum' | 'trend_following' | 'insufficient_data';
+  primary_signal: 'long' | 'short' | 'neutral';
+  atr_value: number | null;
+  suggested_risk_pct: number;
+  correlation_filter_active: boolean;
+  notes: string;
+}
+
 export interface FullTickerData {
   ticker: TickerData;
   analyst: AnalystData;
   sentiment: SentimentData;
   risk: RiskData;
   technicals: TechnicalData;
+  quant_indicators?: QuantIndicators;
+  risk_metrics?: RiskMetrics;
+  predictive?: PredictiveForecast;
+  strategy_signals?: StrategySignals;
   position: PositionData;
   exit: { alerts: ExitSignal[]; technicals?: TechnicalData };
   news: NewsItem[];
