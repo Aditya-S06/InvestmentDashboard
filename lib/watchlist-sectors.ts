@@ -41,8 +41,18 @@ export function groupWatchlistBySector<T extends WatchlistLike>(
     groups.set(sector, list);
   }
 
-  return SECTOR_ORDER.filter((name) => groups.has(name)).map((sector) => ({
+  const known = SECTOR_ORDER.filter((name) => groups.has(name)).map((sector) => ({
     sector,
     items: (groups.get(sector) ?? []).sort((a, b) => a.ticker.localeCompare(b.ticker)),
   }));
+
+  const unknown = [...groups.keys()]
+    .filter((name) => !SECTOR_ORDER.includes(name))
+    .sort((a, b) => a.localeCompare(b))
+    .map((sector) => ({
+      sector,
+      items: (groups.get(sector) ?? []).sort((a, b) => a.ticker.localeCompare(b.ticker)),
+    }));
+
+  return [...known, ...unknown];
 }

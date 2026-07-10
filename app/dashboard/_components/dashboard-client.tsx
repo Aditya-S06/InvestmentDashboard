@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { MacroRibbon } from './macro-ribbon';
@@ -9,153 +9,31 @@ import { TickerGrid } from './ticker-grid';
 import { WatchlistSidebar } from './watchlist-sidebar';
 import { DetailModal } from './detail-modal';
 import { SettingsModal } from './settings-modal';
+import { BrokerPanel } from './broker-panel';
+import { useDashboard } from './dashboard-provider';
 import { Activity, LogOut, Settings, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
-import type { TickerCardData, WatchlistItem, MacroData } from '@/lib/types';
-import { DEFAULT_WATCHLIST_TICKERS } from '@/lib/default-watchlist';
-import { sectorForTicker } from '@/lib/watchlist-sectors';
 
 export function DashboardClient() {
   const { data: session, status } = useSession() || {};
   const router = useRouter();
-  const [tickers, setTickers] = useState<TickerCardData[]>([]);
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
-  const [watchlistPrices, setWatchlistPrices] = useState<Record<string, TickerCardData>>({});
+  const {
+    tickers,
+    watchlist,
+    watchlistPrices,
+    macro,
+    loadingTickers,
+    loadingWatchlist,
+    addTicker,
+    removeTicker,
+    toggleWatchlist,
+  } = useDashboard();
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [showWatchlist, setShowWatchlist] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
-  const [macro, setMacro] = useState<MacroData | null>(null);
-  const [loadingTickers, setLoadingTickers] = useState(true);
 
-  // Fetch macro data
-  const fetchMacro = useCallback(async () => {
-    try {
-      const res = await fetch('/api/market/macro');
-      if (res.ok) {
-        const data = await res.json();
-        setMacro(data);
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  // Fetch ticker data
-  const fetchTicker = useCallback(async (symbol: string): Promise<TickerCardData | null> => {
-    try {
-      const res = await fetch(`/api/market/ticker?symbol=${symbol}`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data?.error) return null;
-      // Also fetch sentiment and risk in parallel
-      const [sentRes, riskRes] = await Promise.all([
-        fetch(`/api/market/sentiment?symbol=${symbol}`).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(`/api/market/risk?symbol=${symbol}`).then(r => r.ok ? r.json() : null).catch(() => null),
-      ]);
-      return {
-        symbol: data?.symbol ?? symbol,
-        name: data?.name ?? symbol,
-        price: data?.price ?? 0,
-        change: data?.change ?? 0,
-        changePercent: data?.changePercent ?? 0,
-        sentiment: sentRes ?? undefined,
-        risk: riskRes ?? undefined,
-      };
-    } catch {
-      return null;
-    }
-  }, []);
-
-  // Fetch watchlist (auto-seeds starter tickers when empty)
-  const fetchWatchlist = useCallback(async () => {
-    try {
-      let res = await fetch('/api/watchlist', { cache: 'no-store' });
-      if (!res.ok) {
-        console.error('Watchlist fetch failed:', res.status, await res.text());
-        return;
-      }
-      let data = await res.json();
-      let items = Array.isArray(data) ? data : (data?.items ?? []);
-
-      if (items.length === 0) {
-        res = await fetch('/api/watchlist/bootstrap', { method: 'POST' });
-        if (res.ok) {
-          data = await res.json();
-          items = data?.items ?? [];
-        }
-      }
-
-      setWatchlist(items);
-    } catch (err) {
-      console.error('Watchlist fetch error:', err);
-    }
-  }, []);
-
-  // Load initial data
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.replace('/login');
-      return;
-    }
-    if (status !== 'authenticated') return;
-
-    fetchMacro();
-    fetchWatchlist();
-
-    // Load default tickers
-    setLoadingTickers(true);
-    Promise.all(DEFAULT_WATCHLIST_TICKERS.map(fetchTicker)).then((results) => {
-      const valid = (results ?? []).filter((r): r is TickerCardData => r !== null);
-      setTickers(valid);
-      setLoadingTickers(false);
-    });
-
-    // Auto-refresh macro every 60s
-    const interval = setInterval(fetchMacro, 60000);
-    return () => clearInterval(interval);
-  }, [status, router, fetchMacro, fetchWatchlist, fetchTicker]);
-
-  // Fetch watchlist prices
-  useEffect(() => {
-    if ((watchlist?.length ?? 0) === 0) return;
-    const symbols = watchlist?.map((w: WatchlistItem) => w?.ticker)?.filter(Boolean) ?? [];
-    symbols.forEach(async (sym: string) => {
-      const data = await fetchTicker(sym);
-      if (data) {
-        setWatchlistPrices(prev => ({ ...(prev ?? {}), [sym]: data }));
-      }
-    });
-  }, [watchlist, fetchTicker]);
-
-  const handleAddTicker = async (symbol: string) => {
-    const existing = tickers?.find((t: TickerCardData) => t?.symbol === symbol?.toUpperCase?.());
-    if (existing) return;
-
-    // Add placeholder immediately
-    setTickers(prev => [...(prev ?? []), { symbol: symbol.toUpperCase(), name: '', price: 0, change: 0, changePercent: 0, loading: true }]);
-
-    const data = await fetchTicker(symbol);
-    if (data) {
-      setTickers(prev => (prev ?? []).map((t: TickerCardData) => t?.symbol === symbol?.toUpperCase?.() ? data : t));
-    } else {
-      setTickers(prev => (prev ?? []).filter((t: TickerCardData) => t?.symbol !== symbol?.toUpperCase?.()));
-    }
-  };
-
-  const handleToggleWatchlist = async (symbol: string) => {
-    const isWatchlisted = watchlist?.some((w: WatchlistItem) => w?.ticker === symbol);
-    if (isWatchlisted) {
-      await fetch(`/api/watchlist?ticker=${symbol}`, { method: 'DELETE' });
-    } else {
-      await fetch('/api/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: symbol, sector: sectorForTicker(symbol) }),
-      });
-    }
-    fetchWatchlist();
-  };
-
-  const handleRemoveTicker = (symbol: string) => {
-    setTickers(prev => (prev ?? []).filter((t: TickerCardData) => t?.symbol !== symbol));
-  };
+    if (status === 'unauthenticated') router.replace('/login');
+  }, [status, router]);
 
   if (status === 'loading') {
     return (
@@ -166,6 +44,10 @@ export function DashboardClient() {
         </div>
       </div>
     );
+  }
+
+  if (status === 'unauthenticated') {
+    return null;
   }
 
   return (
@@ -181,7 +63,7 @@ export function DashboardClient() {
           </div>
 
           <div className="flex-1 max-w-xl mx-4">
-            <TickerSearch onSelectTicker={handleAddTicker} />
+            <TickerSearch onSelectTicker={addTicker} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -223,13 +105,15 @@ export function DashboardClient() {
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto p-4">
+          <BrokerPanel />
           <TickerGrid
             tickers={tickers}
             watchlist={watchlist}
             loading={loadingTickers}
             onSelectTicker={setSelectedTicker}
-            onToggleWatchlist={handleToggleWatchlist}
-            onRemoveTicker={handleRemoveTicker}
+            onToggleWatchlist={toggleWatchlist}
+            onRemoveTicker={removeTicker}
+            onDropTicker={addTicker}
           />
         </main>
 
@@ -238,8 +122,9 @@ export function DashboardClient() {
           <WatchlistSidebar
             watchlist={watchlist}
             prices={watchlistPrices}
+            loading={loadingWatchlist}
             onSelectTicker={setSelectedTicker}
-            onRemove={handleToggleWatchlist}
+            onRemove={toggleWatchlist}
           />
         </aside>
       </div>
@@ -250,8 +135,9 @@ export function DashboardClient() {
           <WatchlistSidebar
             watchlist={watchlist}
             prices={watchlistPrices}
+            loading={loadingWatchlist}
             onSelectTicker={(sym) => { setSelectedTicker(sym); setShowWatchlist(false); }}
-            onRemove={handleToggleWatchlist}
+            onRemove={toggleWatchlist}
           />
         </div>
       )}
@@ -261,8 +147,8 @@ export function DashboardClient() {
         <DetailModal
           symbol={selectedTicker}
           onClose={() => setSelectedTicker(null)}
-          isWatchlisted={watchlist?.some((w: WatchlistItem) => w?.ticker === selectedTicker)}
-          onToggleWatchlist={() => handleToggleWatchlist(selectedTicker)}
+          isWatchlisted={watchlist?.some((w) => w?.ticker === selectedTicker)}
+          onToggleWatchlist={() => toggleWatchlist(selectedTicker)}
         />
       )}
 

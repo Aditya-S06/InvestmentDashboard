@@ -1,13 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Star, TrendingUp, TrendingDown, Bookmark, ChevronDown, ChevronRight } from 'lucide-react';
+import { Star, TrendingUp, TrendingDown, Bookmark, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import type { TickerCardData, WatchlistItem } from '@/lib/types';
 import { groupWatchlistBySector } from '@/lib/watchlist-sectors';
+
+const DRAG_MIME = 'application/x-market-intel-ticker';
 
 interface WatchlistSidebarProps {
   watchlist: WatchlistItem[];
   prices: Record<string, TickerCardData>;
+  loading?: boolean;
   onSelectTicker: (symbol: string) => void;
   onRemove: (symbol: string) => void;
 }
@@ -25,25 +28,36 @@ function WatchlistRow({
 }) {
   const isPositive = (data?.change ?? 0) >= 0;
 
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData(DRAG_MIME, item.ticker);
+    e.dataTransfer.setData('text/plain', item.ticker);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <div
-      className="flex items-center justify-between px-4 py-2 hover:bg-secondary/50 cursor-pointer border-b border-border/20 transition-colors"
+      draggable
+      onDragStart={handleDragStart}
+      className="flex items-center justify-between px-4 py-2 hover:bg-secondary/50 cursor-grab active:cursor-grabbing border-b border-border/20 transition-colors"
       onClick={() => onSelectTicker?.(item?.ticker)}
     >
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono font-semibold text-xs text-[#00c853]">{item?.ticker}</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove?.(item?.ticker);
-            }}
-            className="p-0.5"
-          >
-            <Star className="w-3 h-3 fill-[#ffa726] text-[#ffa726]" />
-          </button>
+      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+        <GripVertical className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono font-semibold text-xs text-[#00c853]">{item?.ticker}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove?.(item?.ticker);
+              }}
+              className="p-0.5"
+            >
+              <Star className="w-3 h-3 fill-[#ffa726] text-[#ffa726]" />
+            </button>
+          </div>
+          {data?.name && <p className="text-[9px] text-muted-foreground truncate">{data.name}</p>}
         </div>
-        {data?.name && <p className="text-[9px] text-muted-foreground truncate">{data.name}</p>}
       </div>
       <div className="text-right shrink-0 ml-2">
         <p className="font-mono text-xs font-medium">{data?.price ? `$${data.price.toFixed(2)}` : '—'}</p>
@@ -61,7 +75,7 @@ function WatchlistRow({
   );
 }
 
-export function WatchlistSidebar({ watchlist, prices, onSelectTicker, onRemove }: WatchlistSidebarProps) {
+export function WatchlistSidebar({ watchlist, prices, loading, onSelectTicker, onRemove }: WatchlistSidebarProps) {
   const sectors = groupWatchlistBySector(watchlist ?? []);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -80,11 +94,16 @@ export function WatchlistSidebar({ watchlist, prices, onSelectTicker, onRemove }
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {(watchlist?.length ?? 0) === 0 ? (
+        {loading && (watchlist?.length ?? 0) === 0 ? (
+          <div className="flex flex-col items-center justify-center h-40 px-4 gap-2">
+            <Star className="w-8 h-8 text-muted-foreground/30 animate-pulse" />
+            <p className="text-xs text-muted-foreground text-center">Loading watchlist…</p>
+          </div>
+        ) : (watchlist?.length ?? 0) === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 px-4 gap-2">
             <Star className="w-8 h-8 text-muted-foreground/30" />
             <p className="text-xs text-muted-foreground text-center">
-              Loading watchlist… refresh the page if this stays empty.
+              No watchlist tickers yet. Star a stock from search or insights to add it.
             </p>
           </div>
         ) : (
@@ -125,3 +144,5 @@ export function WatchlistSidebar({ watchlist, prices, onSelectTicker, onRemove }
     </div>
   );
 }
+
+export { DRAG_MIME };

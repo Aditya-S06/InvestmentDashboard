@@ -32,8 +32,8 @@ const finalOutputSchema = z.object({
 
 export const INSIGHTS_APP_TOOLS = [
   // TODO: define get_user_watchlist, get_macro_snapshot, submit_stock_insights
-  // get_ticker_fundamentals → runPython(['full', symbol]); payload includes quant_indicators,
-  // risk_metrics, predictive, and strategy_signals (see lib/types.ts + README market data section).
+  // get_ticker_fundamentals → runPython(['full', symbol]); hybrid Webull+Yahoo payload includes
+  // quant_indicators, risk_metrics, predictive, strategy_signals, data_sources, webull_quote.
 ] as const;
 
 export const INSIGHTS_TOOLS = [INSIGHTS_WEB_SEARCH_TOOL, INSIGHTS_WEB_FETCH_TOOL, ...INSIGHTS_APP_TOOLS] as const;

@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { Star, X, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import type { TickerCardData, WatchlistItem } from '@/lib/types';
+import { DRAG_MIME } from './watchlist-sidebar';
 
 function formatPrice(n: number | null | undefined): string {
   if (n === null || n === undefined || isNaN(n) || n === 0) return '—';
@@ -68,13 +70,42 @@ interface TickerGridProps {
   onSelectTicker: (symbol: string) => void;
   onToggleWatchlist: (symbol: string) => void;
   onRemoveTicker: (symbol: string) => void;
+  onDropTicker: (symbol: string) => void;
 }
 
-export function TickerGrid({ tickers, watchlist, loading, onSelectTicker, onToggleWatchlist, onRemoveTicker }: TickerGridProps) {
+export function TickerGrid({
+  tickers,
+  watchlist,
+  loading,
+  onSelectTicker,
+  onToggleWatchlist,
+  onRemoveTicker,
+  onDropTicker,
+}: TickerGridProps) {
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const symbol = e.dataTransfer.getData(DRAG_MIME) || e.dataTransfer.getData('text/plain');
+    if (symbol) onDropTicker(symbol.toUpperCase());
+  };
+
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="bg-card border border-border rounded-lg p-4 animate-pulse">
             <div className="h-4 bg-secondary rounded w-16 mb-3" />
             <div className="h-6 bg-secondary rounded w-24 mb-2" />
@@ -92,15 +123,34 @@ export function TickerGrid({ tickers, watchlist, loading, onSelectTicker, onTogg
 
   if ((tickers?.length ?? 0) === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-        <TrendingUp className="w-10 h-10 mb-3 opacity-30" />
-        <p className="text-sm">No tickers loaded. Use the search bar above to add stocks.</p>
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`flex flex-col items-center justify-center min-h-64 rounded-lg border-2 border-dashed transition-colors ${
+          dragOver
+            ? 'border-[#00c853]/60 bg-[#00c853]/5 text-foreground'
+            : 'border-border/60 text-muted-foreground'
+        }`}
+      >
+        <TrendingUp className={`w-10 h-10 mb-3 ${dragOver ? 'text-[#00c853]' : 'opacity-30'}`} />
+        <p className="text-sm font-medium">Your analysis grid is empty</p>
+        <p className="text-xs mt-1 text-center max-w-sm px-4">
+          Drag stocks from the watchlist sidebar, or use the search bar above to add tickers.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 rounded-lg transition-colors ${
+        dragOver ? 'ring-2 ring-[#00c853]/40 ring-offset-2 ring-offset-background' : ''
+      }`}
+    >
       {(tickers ?? []).map((ticker: TickerCardData) => {
         const isPositive = (ticker?.change ?? 0) >= 0;
         const isWatchlisted = watchlist?.some((w: WatchlistItem) => w?.ticker === ticker?.symbol);

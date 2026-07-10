@@ -15,6 +15,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+conf/
 
 # Next.js
 .next/
@@ -71,6 +72,7 @@ STYLE_GUIDE.md
 styles.md
 INSIGHTS_AGENT_CONTEXT.md
 CODEBASE_CONTEXT.md
+WEBULL_INTEGRATION.md
 plan_insights_regime_engine.md
 plan_*.md
 

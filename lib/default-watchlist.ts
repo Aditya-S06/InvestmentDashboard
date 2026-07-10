@@ -1,4 +1,4 @@
-/** Starter watchlist and ticker grid symbols for new users. */
+/** Starter watchlist symbols seeded in DB for new users. */
 export const DEFAULT_WATCHLIST_TICKERS = [
   'AAPL',
   'MSFT',

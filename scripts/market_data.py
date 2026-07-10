@@ -790,12 +790,22 @@ def get_trends(symbol):
     except:
         return []
 
+def resolve_history(symbol: str):
+    """Yahoo daily bars for quant/strategy. Returns (hist_df, source)."""
+    try:
+        hist = yf.Ticker(symbol).history(period="1y")
+    except Exception:
+        hist = pd.DataFrame()
+    return hist, "yahoo"
+
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "help"
     symbol = sys.argv[2] if len(sys.argv) > 2 else ""
     
     if action == "ticker":
-        print(json.dumps(get_ticker_data(symbol)))
+        ticker = get_ticker_data(symbol)
+        ticker["data_sources"] = {"quote": "yahoo", "fundamentals": "yahoo"}
+        print(json.dumps(ticker))
     elif action == "historical":
         period = sys.argv[3] if len(sys.argv) > 3 else "6mo"
         print(json.dumps(get_historical(symbol, period)))
@@ -819,12 +829,23 @@ if __name__ == "__main__":
         print(json.dumps(search_ticker(symbol)))
     elif action == "trends":
         print(json.dumps(get_trends(symbol)))
+    elif action == "snapshots":
+        # Yahoo-only batch quotes for Insights watchlist context
+        symbols = [s.strip() for s in (symbol or "").split(",") if s.strip()]
+        quotes = {}
+        for sym in symbols:
+            t = get_ticker_data(sym)
+            if not t.get("error"):
+                quotes[sym.upper()] = {
+                    "symbol": sym.upper(),
+                    "price": t.get("price", 0),
+                    "changePercent": t.get("changePercent", 0),
+                    "name": t.get("name", sym.upper()),
+                }
+        print(json.dumps({"configured": False, "quotes": quotes}))
     elif action == "full":
-        # Full data for detail view
-        try:
-            hist = yf.Ticker(symbol).history(period="1y")
-        except Exception:
-            hist = pd.DataFrame()
+        hist, hist_src = resolve_history(symbol)
+        ticker = get_ticker_data(symbol)
 
         try:
             quant_indicators = compute_technical_indicators(hist)
@@ -851,7 +872,7 @@ if __name__ == "__main__":
             }
 
         result = {
-            "ticker": get_ticker_data(symbol),
+            "ticker": ticker,
             "analyst": get_analyst_data(symbol),
             "sentiment": compute_sentiment(symbol),
             "risk": compute_risk_score(symbol),
@@ -860,6 +881,13 @@ if __name__ == "__main__":
             "risk_metrics": risk_metrics,
             "predictive": predictive,
             "strategy_signals": strategy_signals,
+            "data_sources": {
+                "quote": "yahoo",
+                "history": hist_src,
+                "news": "yahoo",
+                "sentiment": "yahoo",
+                "fundamentals": "yahoo",
+            },
             "position": compute_position_sizing(symbol),
             "exit": get_exit_signals(symbol),
             "news": get_news(symbol),

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, PanelLeftClose, PanelLeftOpen, Plus, Send, Settings, Sparkles } from 'lucide-react';
 import type { InsightChatMetadata, InsightSessionSummary } from '@/lib/insights/types';
-import type { WatchlistItem } from '@/lib/types';
-import { sectorForTicker } from '@/lib/watchlist-sectors';
+import { useDashboard } from '../../_components/dashboard-provider';
 import { DetailModal } from '../../_components/detail-modal';
 import { SettingsModal } from '../../_components/settings-modal';
 import { InsightsChat, type InsightUiMessage } from './insights-chat';
@@ -20,6 +19,7 @@ interface AccessState {
 }
 
 export function InsightsClient() {
+  const { watchlist, toggleWatchlist } = useDashboard();
   const [access, setAccess] = useState<AccessState>({
     loading: true,
     hasAccess: false,
@@ -35,7 +35,6 @@ export function InsightsClient() {
   const [sending, setSending] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [historyOpen, setHistoryOpen] = useState(true);
 
   const fetchAccess = useCallback(async () => {
@@ -62,17 +61,9 @@ export function InsightsClient() {
     setSessions(Array.isArray(data) ? data : []);
   }, []);
 
-  const fetchWatchlist = useCallback(async () => {
-    const res = await fetch('/api/watchlist', { cache: 'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
-    setWatchlist(Array.isArray(data) ? data : data?.items ?? []);
-  }, []);
-
   useEffect(() => {
     fetchAccess();
-    fetchWatchlist();
-  }, [fetchAccess, fetchWatchlist]);
+  }, [fetchAccess]);
 
   useEffect(() => {
     if (access.hasAccess) fetchSessions();
@@ -171,17 +162,7 @@ export function InsightsClient() {
   };
 
   const handleToggleWatchlist = async (symbol: string) => {
-    const isWatchlisted = watchlist.some((item) => item.ticker === symbol);
-    if (isWatchlisted) {
-      await fetch(`/api/watchlist?ticker=${symbol}`, { method: 'DELETE' });
-    } else {
-      await fetch('/api/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: symbol, sector: sectorForTicker(symbol) }),
-      });
-    }
-    fetchWatchlist();
+    await toggleWatchlist(symbol);
   };
 
   const updateAssistant = (assistantId: string, patch: Partial<InsightUiMessage>) => {

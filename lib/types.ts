@@ -131,6 +131,50 @@ export interface StrategySignals {
   notes: string;
 }
 
+export interface DataSources {
+  quote: 'webull' | 'yahoo' | 'yahoo_fallback';
+  history: 'webull' | 'yahoo' | 'yahoo_fallback';
+  news: 'yahoo';
+  sentiment: 'yahoo';
+  fundamentals: 'yahoo';
+}
+
+export interface WebullQuote {
+  bid: number;
+  ask: number;
+  last: number;
+  volume: number;
+  asOf: string;
+}
+
+export interface WebullAccount {
+  accountId: string;
+  accountType: string;
+  accountNumber?: string;
+  accountClass?: string;
+  label?: string;
+  userId?: string;
+  currency?: string;
+}
+
+export interface WebullPosition {
+  symbol: string;
+  quantity: number;
+  avgCost: number;
+  marketValue: number;
+  unrealizedPnl: number;
+  lastPrice?: number;
+}
+
+export interface WebullBalance {
+  accountId: string;
+  totalCash: number;
+  buyingPower: number;
+  totalMarketValue: number;
+  netLiquidation: number;
+  currency: string;
+}
+
 export interface FullTickerData {
   ticker: TickerData;
   analyst: AnalystData;
@@ -141,6 +185,8 @@ export interface FullTickerData {
   risk_metrics?: RiskMetrics;
   predictive?: PredictiveForecast;
   strategy_signals?: StrategySignals;
+  data_sources?: DataSources;
+  webull_quote?: WebullQuote;
   position: PositionData;
   exit: { alerts: ExitSignal[]; technicals?: TechnicalData };
   news: NewsItem[];
