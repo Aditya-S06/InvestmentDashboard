@@ -1,0 +1,11 @@
+28092 2026-07-13 00:44:20,168 webull.core.http.initializer.client_initializer INFO _check_token_enable result is True
+28092 2026-07-13 00:44:20,169 webull.core.http.initializer.token.token_storage INFO storage_token uses the custom configuration, token_dir:conf.
+28092 2026-07-13 00:44:20,170 webull.core.http.initializer.token.token_storage INFO storage_token initialized path:C:\Users\suchi\Aditya\project_oracle\project_oracle_v.5\conf\token.txt.
+28092 2026-07-13 00:44:20,171 webull.core.http.initializer.token.token_storage WARNING storage_token Note: The token file already exists, the latest token configuration will be overwritten and written to the token file after successful 2FA verification. path:C:\Users\suchi\Aditya\project_oracle\project_oracle_v.5\conf\token.txt.
+28092 2026-07-13 00:44:20,171 webull.core.http.initializer.token.token_manager INFO load_token_from_local reading token from file...
+28092 2026-07-13 00:44:20,179 webull.core.http.initializer.token.token_manager INFO load_token_from_local read local token result. token:36d8dd******d3d6af expires:1785219484044 status:NORMAL
+28092 2026-07-13 00:44:20,638 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token result. token:36d8dd******d3d6af expires:1785219484044 status:NORMAL
+28092 2026-07-13 00:44:20,639 webull.core.http.initializer.token.token_manager INFO fetch_token_from_server create_token status is verified, no further check required, returning directly. token:36d8dd******d3d6af expires:1785219484044 status:NORMAL
+28092 2026-07-13 00:44:20,639 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to local file. token:36d8dd******d3d6af expires:1785219484044 status:NORMAL
+28092 2026-07-13 00:44:20,640 webull.core.http.initializer.token.token_manager INFO save_token_to_local writing token to file completed.
+28092 2026-07-13 00:44:20,641 webull.core.http.initializer.token.token_manager INFO init_token finished. token:36d8dd******d3d6af expires:1785219484044 status:NORMAL

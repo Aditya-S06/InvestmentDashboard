@@ -8,6 +8,7 @@ export const INSIGHTS_MODEL_OPTIONS = [
   { id: 'x-ai/grok-4.5', label: 'Grok 4.5' },
   { id: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5' },
   { id: 'openai/gpt-5.6-luna-pro', label: 'GPT 5.6 Luna Pro' },
+  { id: 'deepseek/deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
 ] as const;
 
 export type InsightsModelId = (typeof INSIGHTS_MODEL_OPTIONS)[number]['id'];

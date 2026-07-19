@@ -5,7 +5,6 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { groupWatchlistBySector, sectorForTicker, sectorSortIndex } from '@/lib/watchlist-sectors';
-import { ensureDefaultWatchlist } from '@/lib/seed-watchlist';
 
 function serializeWatchlistItem(i: { id: string; ticker: string; sector: string | null; createdAt: Date }) {
   return {
@@ -23,18 +22,10 @@ export async function GET() {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    let items = await prisma.watchlist.findMany({
+    const items = await prisma.watchlist.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
     });
-
-    if (items.length === 0) {
-      await ensureDefaultWatchlist(userId);
-      items = await prisma.watchlist.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
 
     const serialized = items.map(serializeWatchlistItem).sort((a, b) => {
       const sectorDiff =

@@ -3,8 +3,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Direct (non-pooler) connection for Prisma migrations / db push on Supabase
+  directUrl = env("DIRECT_URL")
 }
 
 model User {

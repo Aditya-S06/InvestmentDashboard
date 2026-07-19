@@ -2,7 +2,7 @@
 
 A self-hosted financial intelligence dashboard for tracking equities and building a personal watchlist. Built for investors who want a consolidated view of price action, sentiment signals, risk metrics, and macro context—without relying on a proprietary hosted platform.
 
-Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via `yfinance`. Optional [Webull OpenAPI](https://developer.webull.com/) is used for the admin broker panel (accounts / balances / positions) only — not for dashboard pricing. User accounts, watchlists, and settings are stored in PostgreSQL.
+Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via `yfinance`. Optional [Webull OpenAPI](https://developer.webull.com/) is used for the admin broker panel (accounts / balances / positions) only — not for dashboard pricing. User accounts, watchlists, paper trades, and settings are stored in **Supabase Postgres** (cloud). Docker Postgres is optional and no longer required.
 
 ## Features
 
@@ -23,29 +23,32 @@ Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via
 |-------|------------|
 | Frontend | Next.js 14, React 18, Tailwind CSS, Recharts |
 | Backend | Next.js API routes, NextAuth.js v4 |
-| Database | PostgreSQL, Prisma ORM |
+| Database | Supabase Postgres + Prisma ORM |
 | Market data | Python 3, `yfinance`, `webull-openapi-python-sdk`, `pytz` |
 | YouTube ingest | `google-api-python-client`, `youtube-transcript-api`, `yt-dlp`, OpenRouter |
-| Local DB | Docker Compose (Postgres 16) |
+| Optional local DB | Docker Compose (Postgres 16) — only if not using Supabase |
 
 ## Architecture
 
 ```
-Browser → Next.js (dashboard, auth)
+Browser → Next.js (dashboard, auth)  [runs on your machine or a host]
               ├── /api/market/*   →  Python (market_data.py)   →  Yahoo Finance
               ├── /api/broker/*   →  Python (webull_client.py)  →  Webull OpenAPI (admin)
               ├── /api/youtube/*  →  Python (youtube_ingest.py) →  YouTube Data API + OpenRouter
-              ├── /api/watchlist/*  →  Prisma  →  PostgreSQL
-              └── /api/auth/*  →  NextAuth  →  PostgreSQL
+              ├── /api/paper/*    →  Prisma  →  Supabase Postgres
+              ├── /api/watchlist/*  →  Prisma  →  Supabase Postgres
+              └── /api/auth/*  →  NextAuth  →  Supabase Postgres
 ```
+
+> Moving to Supabase replaces **local Docker Postgres**, not the Next.js/Python app. Market data still uses local Python. You can quit Docker Desktop after linking.
+
 ## Getting started
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
 - [Python](https://www.python.org/) 3.10+
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (recommended for PostgreSQL)  
-  — or a local/cloud Postgres instance
+- A [Supabase](https://supabase.com) project (schema is applied to **InvestmentDashboard**)
 
 ### Installation
 
@@ -67,9 +70,11 @@ python -m venv .venv
 cp .env.example .env   # Windows: copy .env.example .env
 # Edit .env — set NEXTAUTH_SECRET to a long random string
 
-# Database (Docker)
-npm run db:up
-npm run setup
+# Link cloud Postgres (no Docker required)
+# Dashboard → Project Settings → Database → copy database password, then:
+.\scripts\link-supabase.ps1
+npx prisma generate
+npx prisma db seed
 ```
 
 ### Run
@@ -80,7 +85,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-**Development seed account** (created by `npm run setup`): `john@doe.com` / `johndoe123`  
+**Development seed account** (created by seed): `john@doe.com` / `johndoe123`  
 Change or remove this user before any production deployment.
 
 ### NPM scripts
@@ -89,21 +94,29 @@ Change or remove this user before any production deployment.
 |--------|-------------|
 | `npm run dev` | Start development server |
 | `npm run build` | Production build |
-| `npm run db:up` | Start Postgres container |
-| `npm run db:down` | Stop Postgres container |
-| `npm run db:push` | Apply Prisma schema |
+| `npm run db:link` | Interactive helper to write Supabase URLs into `.env` |
+| `npm run db:up` | Start optional local Postgres container |
+| `npm run db:down` | Stop local Postgres container |
+| `npm run db:push` | Apply Prisma schema (uses `DIRECT_URL`) |
 | `npm run db:seed` | Seed demo user and starter watchlist |
 | `npm run setup` | `prisma generate` + `db push` + `seed` |
 
-### Without Docker
+### Optional: local Docker Postgres
 
-Install PostgreSQL, create a database (e.g. `market_intel`), set `DATABASE_URL` in `.env`, then run `npm run setup`.
+Only if you are **not** using Supabase:
+
+```bash
+npm run db:up
+npm run setup
+```
 
 ## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL` | Yes | Supabase **pooler** URL (port `6543`, `pgbouncer=true`) |
+| `DIRECT_URL` | Yes | Supabase **session/direct** URL (port `5432`) for migrations/seed |
+| `SUPABASE_URL` | Recommended | `https://<project-ref>.supabase.co` |
 | `NEXTAUTH_SECRET` | Yes | Random secret for session signing |
 | `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`) |
 | `OPENROUTER_API_KEY` | For admin Insights / YouTube summaries | Server OpenRouter key |
