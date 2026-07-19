@@ -1,14 +1,34 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, PanelLeftClose, PanelLeftOpen, Plus, Send, Settings, Sparkles } from 'lucide-react';
-import type { InsightChatMetadata, InsightSessionSummary } from '@/lib/insights/types';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ImagePlus,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Send,
+  Settings,
+  Sparkles,
+  X,
+} from 'lucide-react';
+import {
+  DEFAULT_INSIGHTS_MODEL_ID,
+  INSIGHTS_MODEL_OPTIONS,
+  type InsightsModelId,
+} from '@/lib/insights/models';
+import type { InsightChatMetadata, InsightImageAttachment, InsightSessionSummary } from '@/lib/insights/types';
 import { useDashboard } from '../../_components/dashboard-provider';
 import { DetailModal } from '../../_components/detail-modal';
 import { SettingsModal } from '../../_components/settings-modal';
 import { InsightsChat, type InsightUiMessage } from './insights-chat';
 import { SessionSidebar } from './session-sidebar';
+
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 interface AccessState {
   loading: boolean;
@@ -16,6 +36,10 @@ interface AccessState {
   source: 'admin' | 'user' | null;
   isAdmin: boolean;
   adminKeyConfigured: boolean;
+}
+
+interface PendingImage extends InsightImageAttachment {
+  id: string;
 }
 
 export function InsightsClient() {
@@ -36,6 +60,14 @@ export function InsightsClient() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const [modelId, setModelId] = useState<InsightsModelId>(DEFAULT_INSIGHTS_MODEL_ID);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  const selectedModel = INSIGHTS_MODEL_OPTIONS.find((option) => option.id === modelId) ?? INSIGHTS_MODEL_OPTIONS[0];
 
   const fetchAccess = useCallback(async () => {
     setAccess((prev) => ({ ...prev, loading: true }));
@@ -69,6 +101,16 @@ export function InsightsClient() {
     if (access.hasAccess) fetchSessions();
   }, [access.hasAccess, fetchSessions]);
 
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!modelMenuRef.current?.contains(event.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, []);
+
   const loadSession = async (sessionId: string) => {
     const res = await fetch(`/api/insights/sessions/${sessionId}`, { cache: 'no-store' });
     if (!res.ok) return;
@@ -98,20 +140,72 @@ export function InsightsClient() {
     setMessages([]);
     setInput('');
     setStatus(null);
+    setPendingImages([]);
+    setAttachError(null);
+  };
+
+  const addImageFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+
+    setAttachError(null);
+    const remaining = MAX_IMAGES - pendingImages.length;
+    if (remaining <= 0) {
+      setAttachError(`You can attach up to ${MAX_IMAGES} images.`);
+      return;
+    }
+
+    const next: PendingImage[] = [];
+    for (const file of list.slice(0, remaining)) {
+      if (!file.type.startsWith('image/')) {
+        setAttachError('Only image files are supported.');
+        continue;
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        setAttachError('Each image must be under 4MB.');
+        continue;
+      }
+      const url = await readFileAsDataUrl(file);
+      next.push({
+        id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+        url,
+        mimeType: file.type,
+        name: file.name,
+      });
+    }
+
+    if (next.length > 0) {
+      setPendingImages((prev) => [...prev, ...next].slice(0, MAX_IMAGES));
+    }
+  };
+
+  const removePendingImage = (id: string) => {
+    setPendingImages((prev) => prev.filter((image) => image.id !== id));
   };
 
   const sendMessage = async (value = input) => {
     const text = value.trim();
-    if (!text || sending) return;
+    if ((!text && pendingImages.length === 0) || sending) return;
+
+    const imagesToSend = pendingImages.map(({ url, mimeType, name }) => ({ url, mimeType, name }));
+    const displayText = text || 'Please analyze the attached image(s).';
 
     setInput('');
+    setPendingImages([]);
+    setAttachError(null);
     setSending(true);
     setStatus('Starting research...');
+    setModelMenuOpen(false);
 
     const assistantId = `assistant-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, role: 'user', content: text },
+      {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: displayText,
+        metadata: imagesToSend.length > 0 ? { images: imagesToSend } : undefined,
+      },
       { id: assistantId, role: 'assistant', content: '', metadata: {} },
     ]);
 
@@ -119,7 +213,12 @@ export function InsightsClient() {
       const res = await fetch('/api/insights/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, sessionId: activeSessionId }),
+        body: JSON.stringify({
+          message: text,
+          sessionId: activeSessionId,
+          modelId,
+          images: imagesToSend,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -288,30 +387,125 @@ export function InsightsClient() {
 
             <div className="border-t border-border bg-card/80 p-4">
               <div className="mx-auto max-w-4xl">
+                {pendingImages.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {pendingImages.map((image) => (
+                      <div key={image.id} className="group relative h-16 w-16 overflow-hidden rounded-md border border-border">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={image.url} alt={image.name || 'Attachment'} className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removePendingImage(image.id)}
+                          className="absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white opacity-80 transition-opacity hover:opacity-100"
+                          title="Remove image"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
                     sendMessage();
                   }}
-                  className="flex gap-2"
+                  className="rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-[#00c853]/30"
                 >
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
-                    placeholder="Ask AI Insights to analyze your watchlist or research new stock ideas..."
+                    onPaste={(event) => {
+                      const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+                        file.type.startsWith('image/'),
+                      );
+                      if (files.length > 0) {
+                        event.preventDefault();
+                        void addImageFiles(files);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        void sendMessage();
+                      }
+                    }}
+                    placeholder="Research a ticker, ask for ideas, or attach a chart/screenshot..."
                     rows={2}
-                    className="min-h-[52px] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none ring-[#00c853]/30 placeholder:text-muted-foreground focus:ring-2"
+                    className="min-h-[52px] w-full resize-none bg-transparent px-3 pt-2.5 text-sm outline-none placeholder:text-muted-foreground"
                     disabled={sending}
                   />
-                  <button
-                    type="submit"
-                    disabled={sending || !input.trim()}
-                    className="flex h-[52px] w-12 items-center justify-center rounded-lg bg-[#00c853] text-black transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  </button>
+
+                  <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                    <div className="flex min-w-0 items-center gap-1">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => {
+                          if (event.target.files) void addImageFiles(event.target.files);
+                          event.target.value = '';
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={sending || pendingImages.length >= MAX_IMAGES}
+                        className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                        title="Attach image"
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                      </button>
+
+                      <div className="relative" ref={modelMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => setModelMenuOpen((open) => !open)}
+                          disabled={sending}
+                          className="flex max-w-[200px] items-center gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                          title="Select model"
+                        >
+                          <span className="truncate">{selectedModel.label}</span>
+                          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                        </button>
+                        {modelMenuOpen && (
+                          <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[220px] overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                            {INSIGHTS_MODEL_OPTIONS.map((option) => (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => {
+                                  setModelId(option.id);
+                                  setModelMenuOpen(false);
+                                }}
+                                className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm transition-colors hover:bg-secondary ${
+                                  option.id === modelId ? 'bg-[#00c853]/10 text-foreground' : 'text-foreground'
+                                }`}
+                              >
+                                <span className="font-medium">{option.label}</span>
+                                <span className="text-[10px] text-muted-foreground">{option.id}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={sending || (!input.trim() && pendingImages.length === 0)}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#00c853] text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </form>
-                <p className="text-[10px] text-muted-foreground">
+
+                {attachError && <p className="mt-1 text-[10px] text-red-500">{attachError}</p>}
+                <p className="mt-1 text-[10px] text-muted-foreground">
                   AI Insights surfaces indicators and signals for research only. It is not financial advice or a guarantee of price movement.
                 </p>
               </div>
@@ -339,6 +533,15 @@ export function InsightsClient() {
       )}
     </div>
   );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read image'));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function readEventStream(response: Response, onEvent: (event: string, data: any) => Promise<void> | void) {
@@ -380,4 +583,3 @@ function parseSseEvent(raw: string): { name: string; data: any } | null {
     return { name, data: {} };
   }
 }
-

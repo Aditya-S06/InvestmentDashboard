@@ -3,8 +3,14 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireInsightsAccess } from '@/lib/insights/access';
+import {
+  INSIGHTS_MAX_IMAGE_BYTES,
+  INSIGHTS_MAX_IMAGES_PER_MESSAGE,
+} from '@/lib/insights/config';
+import { resolveInsightsModel } from '@/lib/insights/models';
 import { checkInsightRateLimit } from '@/lib/insights/rate-limit';
 import { runInsightChat, type InsightStreamEvent } from '@/lib/insights/orchestrator';
+import type { InsightImageAttachment } from '@/lib/insights/types';
 import { prisma } from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
@@ -25,17 +31,25 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
   const requestedSessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
+  const modelId = resolveInsightsModel(typeof body?.modelId === 'string' ? body.modelId : null);
+  const images = normalizeImages(body?.images);
 
-  if (!message) return NextResponse.json({ error: 'Message required' }, { status: 400 });
+  if (!message && images.length === 0) {
+    return NextResponse.json({ error: 'Message or image required' }, { status: 400 });
+  }
 
-  const insightSession = await getOrCreateSession(userId, requestedSessionId, message);
+  const insightSession = await getOrCreateSession(userId, requestedSessionId, message || 'Image analysis');
   if (!insightSession) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+
+  const userContent = message || 'Please analyze the attached image(s).';
+  const userMetadata = images.length > 0 ? { images } : undefined;
 
   await prisma.insightMessage.create({
     data: {
       sessionId: insightSession.id,
       role: 'user',
-      content: message,
+      content: userContent,
+      metadata: userMetadata as any,
     },
   });
 
@@ -61,15 +75,17 @@ export async function POST(req: NextRequest) {
     try {
       await send('session', {
         id: insightSession.id,
-        title: insightSession.title || titleFromMessage(message),
+        title: insightSession.title || titleFromMessage(userContent),
         keySource: resolvedKey.source,
         remaining: rateLimit.remaining,
+        modelId,
       });
 
       const result = await runInsightChat({
         apiKey: resolvedKey.key,
         userId,
         sessionId: insightSession.id,
+        modelId,
         messages: history.map((item) => ({
           role: item.role === 'assistant' ? 'assistant' : 'user',
           content: item.content,
@@ -89,7 +105,7 @@ export async function POST(req: NextRequest) {
 
       await prisma.insightSession.update({
         where: { id: insightSession.id },
-        data: { title: insightSession.title || titleFromMessage(message) },
+        data: { title: insightSession.title || titleFromMessage(userContent) },
       });
 
       await send('done', {
@@ -112,6 +128,28 @@ export async function POST(req: NextRequest) {
   });
 }
 
+function normalizeImages(raw: unknown): InsightImageAttachment[] {
+  if (!Array.isArray(raw)) return [];
+
+  const images: InsightImageAttachment[] = [];
+  for (const item of raw.slice(0, INSIGHTS_MAX_IMAGES_PER_MESSAGE)) {
+    if (!item || typeof item !== 'object') continue;
+    const url = typeof (item as any).url === 'string' ? (item as any).url : '';
+    if (!url.startsWith('data:image/')) continue;
+
+    const approxBytes = Math.floor((url.length * 3) / 4);
+    if (approxBytes > INSIGHTS_MAX_IMAGE_BYTES) continue;
+
+    images.push({
+      url,
+      mimeType: typeof (item as any).mimeType === 'string' ? (item as any).mimeType : undefined,
+      name: typeof (item as any).name === 'string' ? (item as any).name : undefined,
+    });
+  }
+
+  return images;
+}
+
 async function getOrCreateSession(userId: string, sessionId: string | null, firstMessage: string) {
   if (sessionId) {
     return prisma.insightSession.findFirst({
@@ -130,4 +168,3 @@ function titleFromMessage(message: string) {
   const title = message.trim().split(/\s+/).slice(0, 8).join(' ');
   return title.length > 80 ? `${title.slice(0, 77)}...` : title || 'New insight chat';
 }
-

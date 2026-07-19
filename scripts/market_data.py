@@ -894,5 +894,13 @@ if __name__ == "__main__":
             "trends": get_trends(symbol),
         }
         print(json.dumps(result))
+    elif action == "youtube":
+        # Thin passthrough so runPython(['youtube', ...]) hits youtube_ingest.py
+        try:
+            from youtube_ingest import dispatch_cli
+        except ImportError as e:
+            print(json.dumps({"error": f"youtube_ingest unavailable: {e}"}))
+        else:
+            print(json.dumps(dispatch_cli(sys.argv[2:])))
     else:
         print(json.dumps({"error": f"Unknown action: {action}"}))

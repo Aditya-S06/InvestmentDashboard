@@ -27,11 +27,19 @@ export interface InsightToolTrace {
   args: Record<string, unknown>;
 }
 
+export interface InsightImageAttachment {
+  /** data:image/...;base64,... URL for OpenRouter vision */
+  url: string;
+  mimeType?: string;
+  name?: string;
+}
+
 export interface InsightChatMetadata {
   picks?: InsightPick[];
   citations?: InsightCitation[];
   toolTrace?: InsightToolTrace[];
   modelUsed?: string;
+  images?: InsightImageAttachment[];
 }
 
 export interface InsightStoredMessage {

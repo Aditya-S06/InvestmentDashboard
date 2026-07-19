@@ -11,7 +11,7 @@ import { DetailModal } from './detail-modal';
 import { SettingsModal } from './settings-modal';
 import { BrokerPanel } from './broker-panel';
 import { useDashboard } from './dashboard-provider';
-import { Activity, LogOut, Settings, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
+import { Activity, LogOut, Settings, ChevronRight, ChevronLeft, Sparkles, Youtube, BookOpenCheck } from 'lucide-react';
 
 export function DashboardClient() {
   const { data: session, status } = useSession() || {};
@@ -73,6 +73,20 @@ export function DashboardClient() {
               title="AI Insights"
             >
               <Sparkles className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => router.push('/dashboard/youtube-analysis')}
+              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="YouTube Analysis"
+            >
+              <Youtube className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => router.push('/dashboard/journal')}
+              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title="Paper Portfolio & Journal"
+            >
+              <BookOpenCheck className="w-4 h-4" />
             </button>
             <button
               onClick={() => setShowSettings(true)}

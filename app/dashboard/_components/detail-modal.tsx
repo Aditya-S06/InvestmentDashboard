@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Star, AlertTriangle, TrendingUp, TrendingDown, Loader2, Shield, Target, BarChart3, Newspaper, Sparkles, ExternalLink, Info } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { X, Star, AlertTriangle, TrendingUp, TrendingDown, Loader2, Shield, Target, BarChart3, Newspaper, Sparkles, ExternalLink, Info, BrainCircuit, Gauge, NotebookPen } from 'lucide-react';
 import type { FullTickerData, NewsItem, ExitSignal } from '@/lib/types';
 import { PriceChart } from './price-chart';
 import { RsiGauge } from './rsi-gauge';
@@ -19,6 +20,15 @@ function formatPrice(n: number | null | undefined): string {
   return '$' + n.toFixed(2);
 }
 
+function formatMetric(n: number | null | undefined, digits = 2, suffix = ''): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  return `${n.toFixed(digits)}${suffix}`;
+}
+
+function humanize(value: string | null | undefined): string {
+  return value ? value.replace(/_/g, ' ') : 'Unavailable';
+}
+
 function CredibilityBadge({ level }: { level: string }) {
   const colors: Record<string, string> = {
     High: 'bg-[#00c853]/10 text-[#00c853] border-[#00c853]/20',
@@ -33,6 +43,7 @@ function CredibilityBadge({ level }: { level: string }) {
 }
 
 export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist }: DetailModalProps) {
+  const router = useRouter();
   const [data, setData] = useState<FullTickerData | null>(null);
   const [historical, setHistorical] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +68,10 @@ export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist 
   const technicals = data?.technicals;
   const position = data?.position;
   const exitData = data?.exit;
+  const quantIndicators = data?.quant_indicators;
+  const riskMetrics = data?.risk_metrics;
+  const predictive = data?.predictive;
+  const strategySignals = data?.strategy_signals;
   const news = data?.news ?? [];
   const trends = data?.trends ?? [];
   const isPositive = (ticker?.change ?? 0) >= 0;
@@ -76,9 +91,19 @@ export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist 
               <Star className={`w-4 h-4 ${isWatchlisted ? 'fill-[#ffa726] text-[#ffa726]' : 'text-muted-foreground hover:text-[#ffa726]'}`} />
             </button>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-secondary text-muted-foreground">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => router.push(`/dashboard/journal?new=1&symbol=${encodeURIComponent(symbol)}`)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#00c853] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-90"
+            >
+              <NotebookPen className="h-3.5 w-3.5" />
+              Plan paper trade
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded hover:bg-secondary text-muted-foreground">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -157,6 +182,73 @@ export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist 
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Quant strategy layer */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="rounded-lg border border-[#00c853]/20 bg-[#00c853]/5 p-4 lg:col-span-1">
+                <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold font-display">
+                  <BrainCircuit className="h-4 w-4 text-[#00c853]" /> Strategy Signal
+                </h3>
+                {strategySignals ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full border border-[#60B5FF]/30 bg-[#60B5FF]/10 px-2 py-1 text-[10px] font-semibold capitalize text-[#60B5FF]">
+                        {humanize(strategySignals.regime)}
+                      </span>
+                      <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase ${
+                        strategySignals.primary_signal === 'long'
+                          ? 'border-[#00c853]/30 bg-[#00c853]/10 text-[#00c853]'
+                          : strategySignals.primary_signal === 'short'
+                            ? 'border-[#ff1744]/30 bg-[#ff1744]/10 text-[#ff1744]'
+                            : 'border-[#ffa726]/30 bg-[#ffa726]/10 text-[#ffa726]'
+                      }`}>
+                        {strategySignals.primary_signal}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md bg-secondary/50 p-2">
+                        <p className="text-[9px] text-muted-foreground">ATR</p>
+                        <p className="font-mono text-sm font-semibold">{formatPrice(strategySignals.atr_value)}</p>
+                      </div>
+                      <div className="rounded-md bg-secondary/50 p-2">
+                        <p className="text-[9px] text-muted-foreground">Risk per trade</p>
+                        <p className="font-mono text-sm font-semibold">{formatMetric(strategySignals.suggested_risk_pct * 100, 1, '%')}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">{strategySignals.notes}</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Strategy signals are unavailable for this symbol.</p>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border/50 bg-secondary/30 p-4 lg:col-span-2">
+                <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold font-display">
+                  <Gauge className="h-4 w-4 text-[#60B5FF]" /> Quant &amp; Risk Snapshot
+                </h3>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    { label: 'RSI 14', value: formatMetric(quantIndicators?.rsi_14, 1) },
+                    { label: 'MACD histogram', value: formatMetric(quantIndicators?.macd_histogram, 3) },
+                    { label: 'Bollinger %B', value: formatMetric(quantIndicators?.bollinger_pct_b, 2) },
+                    { label: 'Above SMA 50', value: quantIndicators?.above_sma50 == null ? '—' : quantIndicators.above_sma50 ? 'Yes' : 'No' },
+                    { label: 'Annualized vol', value: formatMetric(riskMetrics?.ann_vol_pct, 1, '%') },
+                    { label: 'Max drawdown', value: formatMetric(riskMetrics?.max_drawdown_pct, 1, '%') },
+                    { label: 'Historical VaR 95%', value: formatMetric(riskMetrics?.hist_var_95_pct, 2, '%') },
+                    { label: `${predictive?.horizon_days ?? 5}d historical mean`, value: formatMetric(predictive?.expected_return_pct, 2, '%') },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-md border border-border/40 bg-background/40 p-2">
+                      <p className="text-[9px] text-muted-foreground">{item.label}</p>
+                      <p className="mt-0.5 font-mono text-xs font-semibold">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[9px] leading-relaxed text-muted-foreground">
+                  Forecast: {predictive ? `${formatMetric(predictive.expected_return_pct, 2, '%')} ± ${formatMetric(predictive.std_err_pct, 2, '%')} (${humanize(predictive.method)})` : 'unavailable'}.
+                  Historical-mean forecasts describe past behavior and are not a predictive edge or trading recommendation.
+                </p>
               </div>
             </div>
 

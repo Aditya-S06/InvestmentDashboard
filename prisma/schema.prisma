@@ -1,27 +1,30 @@
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?
-  role          String    @default("user")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  accounts      Account[]
-  sessions      Session[]
-  watchlist     Watchlist[]
-  apiKeys       ApiKey[]
+  id              String           @id @default(cuid())
+  name            String?
+  email           String           @unique
+  emailVerified   DateTime?
+  image           String?
+  password        String?
+  role            String           @default("user")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  accounts        Account[]
+  sessions        Session[]
+  watchlist       Watchlist[]
+  apiKeys         ApiKey[]
   insightSessions InsightSession[]
+  paperAccount    PaperAccount?
+  paperTrades     PaperTrade[]
+  journalReviews  JournalReview[]
 }
 
 model Account {
@@ -97,13 +100,175 @@ model InsightSession {
 }
 
 model InsightMessage {
-  id        String         @id @default(cuid())
-  sessionId String
-  role      String
-  content   String         @db.Text
-  metadata  Json?
-  createdAt DateTime       @default(now())
-  session   InsightSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id          String         @id @default(cuid())
+  sessionId   String
+  role        String
+  content     String         @db.Text
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  session     InsightSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  paperTrades PaperTrade[]
 
   @@index([sessionId])
+}
+
+model YoutubeVideoSummary {
+  id                   String   @id @default(cuid())
+  videoId              String   @unique
+  title                String
+  channelHandle        String
+  channelId            String?
+  publishedAt          DateTime
+  url                  String
+  transcriptLength     Int      @default(0)
+  summary              Json
+  rawTranscriptSnippet String?  @db.Text
+  stockMentions        String[]
+  processedAt          DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([channelHandle])
+  @@index([publishedAt])
+  @@index([stockMentions])
+}
+
+enum PaperTradeSide {
+  LONG
+  SHORT
+}
+
+enum PaperTradeStatus {
+  PLANNED
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum PaperFillSide {
+  BUY
+  SELL
+}
+
+enum PaperFillType {
+  ENTRY
+  ADD
+  REDUCE
+  EXIT
+}
+
+enum JournalReviewType {
+  DAY
+  WEEK
+}
+
+model PaperAccount {
+  id             String          @id @default(cuid())
+  userId         String          @unique
+  startingEquity Decimal         @default(100000) @db.Decimal(20, 4)
+  cash           Decimal         @default(100000) @db.Decimal(20, 4)
+  currency       String          @default("USD") @db.VarChar(3)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades         PaperTrade[]
+  reviews        JournalReview[]
+
+  @@index([createdAt])
+}
+
+model PaperTrade {
+  id               String           @id @default(cuid())
+  accountId        String
+  userId           String
+  symbol           String           @db.VarChar(10)
+  side             PaperTradeSide
+  status           PaperTradeStatus @default(PLANNED)
+  thesis           String           @db.Text
+  invalidation     String           @db.Text
+  plannedEntry     Decimal?         @db.Decimal(20, 4)
+  plannedStop      Decimal?         @db.Decimal(20, 4)
+  plannedTarget    Decimal?         @db.Decimal(20, 4)
+  plannedRisk      Decimal?         @db.Decimal(20, 4)
+  plannedRiskPct   Decimal?         @db.Decimal(12, 6)
+  plannedShares    Decimal?         @db.Decimal(20, 6)
+  setupTag         String?
+  strategyTag      String?
+  qty              Decimal          @default(0) @db.Decimal(20, 6)
+  avgEntry         Decimal?         @db.Decimal(20, 4)
+  avgExit          Decimal?         @db.Decimal(20, 4)
+  openedAt         DateTime?
+  closedAt         DateTime?
+  stop             Decimal          @db.Decimal(20, 4)
+  target           Decimal?         @db.Decimal(20, 4)
+  regimeSnapshot   Json?
+  quantSnapshot    Json?
+  insightMessageId String?
+  realizedPnl      Decimal          @default(0) @db.Decimal(20, 4)
+  realizedR        Decimal?         @db.Decimal(12, 6)
+  fees             Decimal          @default(0) @db.Decimal(20, 4)
+  mfe              Decimal?         @db.Decimal(20, 4)
+  mae              Decimal?         @db.Decimal(20, 4)
+  exitEfficiency   Decimal?         @db.Decimal(12, 6)
+  planFollowed     Boolean?
+  emotionTags      String[]
+  mistakeTags      String[]
+  rating           Int?
+  preNotes         String?          @db.Text
+  managementNotes  String?          @db.Text
+  postNotes        String?          @db.Text
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  account          PaperAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  insightMessage   InsightMessage?  @relation(fields: [insightMessageId], references: [id], onDelete: SetNull)
+  fills            PaperTradeFill[]
+
+  @@index([userId, status])
+  @@index([userId, symbol])
+  @@index([userId, closedAt])
+  @@index([accountId, status])
+  @@index([insightMessageId])
+}
+
+model PaperTradeFill {
+  id        String        @id @default(cuid())
+  tradeId   String
+  side      PaperFillSide
+  type      PaperFillType
+  qty       Decimal       @db.Decimal(20, 6)
+  price     Decimal       @db.Decimal(20, 4)
+  fee       Decimal       @default(0) @db.Decimal(20, 4)
+  filledAt  DateTime
+  note      String?       @db.Text
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  trade     PaperTrade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([tradeId, filledAt])
+  @@index([filledAt])
+}
+
+model JournalReview {
+  id                String            @id @default(cuid())
+  accountId         String
+  userId            String
+  reviewType        JournalReviewType
+  periodStart       DateTime
+  grade             Int?
+  reflections       String?           @db.Text
+  whatWentWell      String?           @db.Text
+  whatToImprove     String?           @db.Text
+  focusNext         String?           @db.Text
+  adherenceSnapshot Json?
+  ruleAdherencePct  Decimal?          @db.Decimal(12, 6)
+  netPnl            Decimal?          @db.Decimal(20, 4)
+  tradeCount        Int?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  account           PaperAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reviewType, periodStart])
+  @@index([accountId, reviewType, periodStart])
+  @@index([userId, periodStart])
 }

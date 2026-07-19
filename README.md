@@ -15,6 +15,7 @@ Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via
 - **Ticker search** — Autocomplete and direct symbol entry.
 - **Authentication** — Email/password sign-in with NextAuth.js; per-user watchlists persisted in the database.
 - **Optional API keys** — Alpha Vantage and Polygon.io keys can be stored per user (settings modal).
+- **YouTube Analysis** — Monitor financial YouTube channels, extract transcripts, generate structured LLM summaries, and query them from AI Insights via `get_youtube_channel_insights`. Browse results at `/dashboard/youtube-analysis`.
 
 ## Tech stack
 
@@ -24,14 +25,16 @@ Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via
 | Backend | Next.js API routes, NextAuth.js v4 |
 | Database | PostgreSQL, Prisma ORM |
 | Market data | Python 3, `yfinance`, `webull-openapi-python-sdk`, `pytz` |
+| YouTube ingest | `google-api-python-client`, `youtube-transcript-api`, `yt-dlp`, OpenRouter |
 | Local DB | Docker Compose (Postgres 16) |
 
 ## Architecture
 
 ```
 Browser → Next.js (dashboard, auth)
-              ├── /api/market/*  →  Python (market_data.py)  →  Yahoo Finance
-              ├── /api/broker/*  →  Python (webull_client.py) →  Webull OpenAPI (admin)
+              ├── /api/market/*   →  Python (market_data.py)   →  Yahoo Finance
+              ├── /api/broker/*   →  Python (webull_client.py)  →  Webull OpenAPI (admin)
+              ├── /api/youtube/*  →  Python (youtube_ingest.py) →  YouTube Data API + OpenRouter
               ├── /api/watchlist/*  →  Prisma  →  PostgreSQL
               └── /api/auth/*  →  NextAuth  →  PostgreSQL
 ```
@@ -103,8 +106,11 @@ Install PostgreSQL, create a database (e.g. `market_intel`), set `DATABASE_URL` 
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `NEXTAUTH_SECRET` | Yes | Random secret for session signing |
 | `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`) |
-| `OPENROUTER_API_KEY` | For admin Insights | Server OpenRouter key |
+| `OPENROUTER_API_KEY` | For admin Insights / YouTube summaries | Server OpenRouter key |
 | `ADMIN_EMAILS` | Recommended | Comma-separated admin emails |
+| `YOUTUBE_API_KEY` | For YouTube Analysis | Google Cloud YouTube Data API v3 key |
+| `YOUTUBE_CHANNELS_FILE` | Optional | Default `conf/youtube_channels.json` |
+| `YOUTUBE_POLL_SINCE_DAYS` | Optional | Default `2` |
 | `WEBULL_APP_KEY` | Optional | Webull OpenAPI app key (admin broker panel only) |
 | `WEBULL_APP_SECRET` | Optional | Webull OpenAPI app secret |
 | `WEBULL_REGION_ID` | Optional | Default `us` |
@@ -112,6 +118,51 @@ Install PostgreSQL, create a database (e.g. `market_intel`), set `DATABASE_URL` 
 | `WEBULL_RATE_LIMIT_PER_MIN` | Optional | Default `30` |
 
 See [`.env.example`](.env.example) for a template.
+
+### YouTube Analysis
+
+Monitor financial channels, store structured summaries in Postgres, and expose them to the AI Insights agent.
+
+**Setup**
+
+1. Enable **YouTube Data API v3** in [Google Cloud Console](https://console.cloud.google.com/) and create an API key. Set `YOUTUBE_API_KEY` in `.env`.
+2. Ensure `OPENROUTER_API_KEY` is set (used for video summarization; same key as AI Insights).
+3. Install Python deps (includes YouTube packages):
+
+```bash
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+4. Copy the channels template and edit as needed:
+
+```bash
+copy conf\youtube_channels.json.example conf\youtube_channels.json
+```
+
+5. Apply the Prisma model (includes `YoutubeVideoSummary`):
+
+```bash
+npm run db:push
+```
+
+6. Open the dashboard → YouTube icon → **Poll all channels**, or use the CLI:
+
+```bash
+python scripts/youtube_ingest.py channel @CNBC 5
+python scripts/youtube_ingest.py poll conf/youtube_channels.json
+python scripts/market_data.py youtube channel @CNBC 5
+```
+
+**Insights agent**
+
+Ask AI Insights about recent CNBC/Bloomberg commentary. The agent calls `get_youtube_channel_insights` (see harness skill `youtube-research.md`), cites video URLs in pick `sources`, and treats YouTube claims as qualitative supplements to `quant_indicators`.
+
+**Optional nightly cron**
+
+- Linux/macOS: `scripts/youtube_poll_cron.sh`
+- Windows Task Scheduler: `scripts/youtube_poll_cron.ps1`
+
+After CLI poll, use the dashboard **Poll** button (or Insights `refresh: true`) so results are upserted into Postgres for browsing and agent queries.
 
 ### Market data (`full` command)
 

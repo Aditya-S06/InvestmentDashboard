@@ -26,6 +26,8 @@ export interface RunInsightChatInput {
   userId: string;
   messages: InsightInputMessage[];
   sessionId?: string;
+  /** OpenRouter model id from INSIGHTS_MODEL_OPTIONS */
+  modelId?: string | null;
   onEvent?: (event: InsightStreamEvent) => void | Promise<void>;
 }
 

@@ -4,6 +4,7 @@ import path from 'path';
 
 const MARKET_SCRIPT = path.join(process.cwd(), 'scripts', 'market_data.py');
 const WEBULL_SCRIPT = path.join(process.cwd(), 'scripts', 'webull_client.py');
+const YOUTUBE_SCRIPT = path.join(process.cwd(), 'scripts', 'youtube_ingest.py');
 
 function getPythonExecutable(): string {
   const venvCandidates =
@@ -30,14 +31,31 @@ function webullEnv(): NodeJS.ProcessEnv {
   };
 }
 
-function runScript(scriptPath: string, args: string[], env?: NodeJS.ProcessEnv): Promise<any> {
+function youtubeEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY ?? '',
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? '',
+    YOUTUBE_CACHE_DIR: process.env.YOUTUBE_CACHE_DIR ?? path.join(process.cwd(), 'data'),
+    YOUTUBE_CHANNELS_FILE: process.env.YOUTUBE_CHANNELS_FILE ?? path.join(process.cwd(), 'conf', 'youtube_channels.json'),
+    YOUTUBE_POLL_SINCE_DAYS: process.env.YOUTUBE_POLL_SINCE_DAYS ?? '2',
+    YOUTUBE_RATE_LIMIT_PER_MIN: process.env.YOUTUBE_RATE_LIMIT_PER_MIN ?? '30',
+  };
+}
+
+function runScript(
+  scriptPath: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv,
+  timeoutMs = 30000,
+): Promise<any> {
   const python = getPythonExecutable();
 
   return new Promise((resolve, reject) => {
     execFile(
       python,
       [scriptPath, ...args],
-      { timeout: 30000, maxBuffer: 1024 * 1024 * 5, env: env ?? process.env },
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 10, env: env ?? process.env },
       (error, stdout, stderr) => {
         if (error) {
           console.error('Python error:', stderr);
@@ -56,9 +74,16 @@ function runScript(scriptPath: string, args: string[], env?: NodeJS.ProcessEnv):
 }
 
 export function runPython(args: string[]): Promise<any> {
-  return runScript(MARKET_SCRIPT, args, webullEnv());
+  // YouTube passthrough via market_data can take longer than market quotes
+  const timeout = args[0] === 'youtube' ? 180000 : 30000;
+  return runScript(MARKET_SCRIPT, args, webullEnv(), timeout);
 }
 
 export function runWebull(args: string[]): Promise<any> {
   return runScript(WEBULL_SCRIPT, args, webullEnv());
+}
+
+/** Direct YouTube ingest CLI — preferred for poll/ingest API routes (180s timeout). */
+export function runYoutube(args: string[]): Promise<any> {
+  return runScript(YOUTUBE_SCRIPT, args, youtubeEnv(), 180000);
 }

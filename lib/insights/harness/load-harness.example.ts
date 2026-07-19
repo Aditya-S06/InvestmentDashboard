@@ -10,27 +10,41 @@ import type { InsightContext } from '../types';
 
 const HARNESS_DIR = path.join(process.cwd(), 'lib', 'insights', 'harness');
 
-export async function buildSystemPrompt(context: InsightContext): Promise<string> {
+export interface BuildSystemPromptOptions {
+  /** Inject watchlist + snapshot into the system prompt. Default false. */
+  includeWatchlist?: boolean;
+}
+
+export async function buildSystemPrompt(
+  context: InsightContext,
+  options: BuildSystemPromptOptions = {},
+): Promise<string> {
+  const includeWatchlist = options.includeWatchlist === true;
   const [system, output, skills] = await Promise.all([
     readHarnessFile('system.md'),
     readHarnessFile('output.md'),
     loadSkillFiles(),
   ]);
 
+  const dashboardContext = includeWatchlist
+    ? {
+        watchlist: context.groupedWatchlist,
+        macro: context.macro,
+        watchlistSnapshot: context.watchlistSnapshot,
+        watchlistAccess: 'enabled',
+      }
+    : {
+        macro: context.macro,
+        watchlistAccess: 'disabled_until_explicit_user_request',
+        note: 'Do not call get_user_watchlist unless the user explicitly asks.',
+      };
+
   const sections = [
     system,
     output ? `## Output formatting\n\n${output}` : '',
     skills ? `## Domain skills\n\n${skills}` : '',
     '## Current dashboard context',
-    JSON.stringify(
-      {
-        watchlist: context.groupedWatchlist,
-        macro: context.macro,
-        watchlistSnapshot: context.watchlistSnapshot,
-      },
-      null,
-      2,
-    ),
+    JSON.stringify(dashboardContext, null, 2),
   ].filter(Boolean);
 
   return sections.join('\n\n');

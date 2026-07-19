@@ -15,7 +15,11 @@ __pycache__/
 .env
 .env.*
 !.env.example
-conf/
+conf/*
+!conf/*.example
+
+# YouTube ingest cache / dedup (regenerated locally)
+data/youtube_processed.json
 
 # Next.js
 .next/

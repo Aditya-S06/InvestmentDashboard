@@ -1,6 +1,7 @@
 'use client';
 
-import { ExternalLink, TrendingUp } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ExternalLink, NotebookPen, TrendingUp } from 'lucide-react';
 import type { InsightPick } from '@/lib/insights/types';
 
 interface InsightPickCardProps {
@@ -15,6 +16,16 @@ const confidenceClass: Record<InsightPick['confidence'], string> = {
 };
 
 export function InsightPickCard({ pick, onSelectTicker }: InsightPickCardProps) {
+  const router = useRouter();
+
+  const planPaperTrade = () => {
+    sessionStorage.setItem(
+      'oracle.paperTradeDraft',
+      JSON.stringify({ symbol: pick.symbol, thesis: pick.thesis, signals: pick.signals }),
+    );
+    router.push(`/dashboard/journal?new=1&symbol=${encodeURIComponent(pick.symbol)}&source=insights`);
+  };
+
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
@@ -65,6 +76,15 @@ export function InsightPickCard({ pick, onSelectTicker }: InsightPickCardProps) 
           ))}
         </div>
       )}
+
+      <button
+        type="button"
+        onClick={planPaperTrade}
+        className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-[#00c853]/30 bg-[#00c853]/10 px-3 py-2 text-xs font-semibold text-[#00c853] transition-colors hover:bg-[#00c853]/15"
+      >
+        <NotebookPen className="h-3.5 w-3.5" />
+        Plan paper trade
+      </button>
     </div>
   );
 }

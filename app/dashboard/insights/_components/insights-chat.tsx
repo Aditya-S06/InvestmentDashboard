@@ -32,7 +32,7 @@ export function InsightsChat({ messages, status, loading, onSelectTicker }: Insi
               <div>
                 <h2 className="font-display text-lg font-semibold">AI Insights</h2>
                 <p className="text-sm text-muted-foreground">
-                  Ask for watchlist analysis, new stock ideas, catalyst research, or risk-ranked comparisons.
+                  Research specific tickers or new ideas. Mention your watchlist only when you want it included.
                 </p>
               </div>
             </div>
@@ -62,7 +62,22 @@ export function InsightsChat({ messages, status, loading, onSelectTicker }: Insi
                     'Researching...'
                   ) : null
                 ) : (
-                  message.content
+                  <div className="space-y-2">
+                    {(message.metadata?.images?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {message.metadata?.images?.map((image, index) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={`${message.id}-img-${index}`}
+                            src={image.url}
+                            alt={image.name || `Attachment ${index + 1}`}
+                            className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {message.content ? <div>{message.content}</div> : null}
+                  </div>
                 )}
               </div>
 

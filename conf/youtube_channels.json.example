@@ -1,0 +1,5 @@
+{
+  "channels": ["@CNBC", "@BloombergTelevision", "@RealVision", "@KitcoNews"],
+  "default_limit": 5,
+  "since_days": 2
+}
