@@ -113,7 +113,11 @@ export async function POST(req: NextRequest) {
         modelUsed: result.metadata.modelUsed,
       });
     } catch (error: any) {
-      await send('error', { message: error?.message || 'AI Insights failed' });
+      const raw = error?.message || 'AI Insights failed';
+      const message = /server tool request failed/i.test(raw)
+        ? 'OpenRouter web search/fetch failed. Check your OpenRouter credits/billing for Exa web tools, then retry. Analysis can still work from market data alone after a refresh.'
+        : raw;
+      await send('error', { message });
     } finally {
       await writer.close();
     }

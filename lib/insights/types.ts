@@ -40,6 +40,8 @@ export interface InsightChatMetadata {
   toolTrace?: InsightToolTrace[];
   modelUsed?: string;
   images?: InsightImageAttachment[];
+  /** True when OpenRouter web_search/web_fetch failed and the run continued on app tools only. */
+  serverToolsDisabled?: boolean;
 }
 
 export interface InsightStoredMessage {

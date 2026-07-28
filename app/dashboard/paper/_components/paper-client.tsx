@@ -19,7 +19,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import type { JournalAnalytics, JournalReview, PaperAccount, PaperTrade } from './journal-types';
+import type { JournalAnalytics, JournalReview, PaperAccount, PaperTrade } from './paper-types';
 import { TradeDetailDrawer } from './trade-detail-drawer';
 import { TradePlanModal } from './trade-plan-modal';
 
@@ -135,7 +135,7 @@ async function readJson(response: Response) {
   return data;
 }
 
-export function JournalClient() {
+export function PaperClient() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>('overview');
   const [account, setAccount] = useState<PaperAccount | null>(null);
@@ -305,17 +305,23 @@ export function JournalClient() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <div className="flex h-9 w-9 items-center justify-center rounded-md border border-[#00c853]/30 bg-[#00c853]/10">
-              <BookOpenCheck className="h-4 w-4 text-[#00c853]" />
+              <Target className="h-4 w-4 text-[#00c853]" />
             </div>
             <div>
-              <h1 className="font-display text-base font-semibold tracking-tight">Paper Portfolio &amp; Journal</h1>
-              <p className="text-xs text-muted-foreground">Plan → enter → manage → review</p>
+              <h1 className="font-display text-base font-semibold tracking-tight">Paper Portfolio</h1>
+              <p className="text-xs text-muted-foreground">Simulation only — plan → enter → manage → review</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
             <button onClick={() => void loadData(true)} disabled={refreshing} className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Refresh">
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
+            <Link
+              href="/dashboard/journal"
+              className="rounded-md px-2.5 py-2 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              Personal journal
+            </Link>
             <a href="/api/paper/export" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Export CSV">
               <Download className="h-4 w-4" />
             </a>

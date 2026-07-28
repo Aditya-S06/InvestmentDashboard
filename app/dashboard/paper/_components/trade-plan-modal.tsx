@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Calculator, Loader2, ShieldCheck, X } from 'lucide-react';
-import type { MarketPrefill, PaperAccount, PaperTrade, TradeSide } from './journal-types';
+import type { MarketPrefill, PaperAccount, PaperTrade, TradeSide } from './paper-types';
 
 interface TradePlanModalProps {
   open: boolean;

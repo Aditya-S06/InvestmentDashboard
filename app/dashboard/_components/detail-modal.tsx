@@ -94,7 +94,7 @@ export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => router.push(`/dashboard/journal?new=1&symbol=${encodeURIComponent(symbol)}`)}
+              onClick={() => router.push(`/dashboard/paper?new=1&symbol=${encodeURIComponent(symbol)}`)}
               className="inline-flex items-center gap-1.5 rounded-md bg-[#00c853] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-90"
             >
               <NotebookPen className="h-3.5 w-3.5" />

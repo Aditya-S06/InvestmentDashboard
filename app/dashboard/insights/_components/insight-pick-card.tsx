@@ -23,7 +23,7 @@ export function InsightPickCard({ pick, onSelectTicker }: InsightPickCardProps) 
       'oracle.paperTradeDraft',
       JSON.stringify({ symbol: pick.symbol, thesis: pick.thesis, signals: pick.signals }),
     );
-    router.push(`/dashboard/journal?new=1&symbol=${encodeURIComponent(pick.symbol)}&source=insights`);
+    router.push(`/dashboard/paper?new=1&symbol=${encodeURIComponent(pick.symbol)}&source=insights`);
   };
 
   return (

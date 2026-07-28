@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Save, X } from 'lucide-react';
 import { Area, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import type { PaperTrade } from './journal-types';
+import type { PaperTrade } from './paper-types';
 
 interface TradeDetailDrawerProps {
   trade: PaperTrade | null;
