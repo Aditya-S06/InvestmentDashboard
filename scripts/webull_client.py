@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Webull OpenAPI CLI — broker read-only + market snapshots/bars.
+"""Webull OpenAPI CLI — broker reads + stock order actions.
 
-Stdout is always JSON. Logs go to stderr.
-Env: WEBULL_APP_KEY, WEBULL_APP_SECRET, WEBULL_REGION_ID, WEBULL_ENVIRONMENT,
-     WEBULL_RATE_LIMIT_PER_MIN
+Stdout is always one JSON object. SDK/debug logs go to stderr or the SDK log file.
+Env: WEBULL_APP_KEY / WEBULL_APP_SECRET (or *_SANDBOX / *_PROD),
+     WEBULL_REGION_ID, WEBULL_ENVIRONMENT, WEBULL_RATE_LIMIT_PER_MIN,
+     WEBULL_TRADING_ENABLED, WEBULL_LIVE_TRADING_ENABLED
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -41,8 +43,56 @@ def _env(name: str, default: str = "") -> str:
     return (os.environ.get(name) or default).strip()
 
 
+def _environment() -> str:
+    return _env("WEBULL_ENVIRONMENT", "prod").lower()
+
+
+def _is_sandbox_env() -> bool:
+    return _environment() in ("sandbox", "uat", "test")
+
+
+def _credentials() -> tuple[str, str]:
+    """Use env-specific keys when set so a wrong ENVIRONMENT cannot silently swap pairs."""
+    if _is_sandbox_env():
+        key = _env("WEBULL_APP_KEY_SANDBOX") or _env("WEBULL_APP_KEY")
+        secret = _env("WEBULL_APP_SECRET_SANDBOX") or _env("WEBULL_APP_SECRET")
+    else:
+        key = _env("WEBULL_APP_KEY_PROD") or _env("WEBULL_APP_KEY")
+        secret = _env("WEBULL_APP_SECRET_PROD") or _env("WEBULL_APP_SECRET")
+    return key, secret
+
+
 def is_configured() -> bool:
-    return bool(_env("WEBULL_APP_KEY") and _env("WEBULL_APP_SECRET"))
+    key, secret = _credentials()
+    return bool(key and secret)
+
+
+def _emit(payload: Any) -> None:
+    """Write the only allowed stdout payload: one JSON object."""
+    sys.__stdout__.write(json.dumps(payload, default=str) + "\n")
+    sys.__stdout__.flush()
+
+
+def _redirect_stdout_to_stderr() -> None:
+    """SDK print()/debug must never mix with the JSON contract on stdout."""
+    sys.stdout = sys.stderr
+
+
+def _configure_sdk_logging() -> None:
+    """Pin webull loggers to stderr; leave file handlers (webull_trade_sdk.log) alone."""
+    def _retarget(logger: logging.Logger) -> None:
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.StreamHandler):
+                stream = getattr(handler, "stream", None)
+                if stream is sys.__stdout__ or stream is sys.stdout:
+                    handler.stream = sys.stderr
+
+    _retarget(logging.getLogger())
+    for name, obj in list(logging.Logger.manager.loggerDict.items()):
+        if not str(name).startswith("webull"):
+            continue
+        if isinstance(obj, logging.Logger):
+            _retarget(obj)
 
 
 def is_us_equity_symbol(symbol: str) -> bool:
@@ -106,21 +156,21 @@ def _as_rows(data: Any, *list_keys: str) -> List[Any]:
 def _build_api_client():
     from webull.core.client import ApiClient
 
-    key = _env("WEBULL_APP_KEY")
-    secret = _env("WEBULL_APP_SECRET")
+    _configure_sdk_logging()
+    key, secret = _credentials()
     region = _env("WEBULL_REGION_ID", "us")
-    env = _env("WEBULL_ENVIRONMENT", "prod").lower()
     token_dir = _env("WEBULL_TOKEN_DIR")
 
     client = ApiClient(key, secret, region)
     if token_dir:
         client.set_token_dir(token_dir)
-    # Docs: UAT uses us-openapi-alb.uat.webullbroker.com; prod uses default SDK endpoint.
-    if env in ("uat", "sandbox", "test"):
+    # Prefer documented sandbox host; fall back to legacy UAT ALB if the SDK rejects it.
+    if _is_sandbox_env():
         try:
-            client.add_endpoint(region, "us-openapi-alb.uat.webullbroker.com")
-        except Exception:
             client.add_endpoint(region, "api.sandbox.webull.com")
+        except Exception:
+            client.add_endpoint(region, "us-openapi-alb.uat.webullbroker.com")
+    _configure_sdk_logging()
     return client
 
 
@@ -141,8 +191,8 @@ def health() -> Dict[str, Any]:
         return {
             "ok": False,
             "configured": False,
-            "environment": _env("WEBULL_ENVIRONMENT", "prod"),
-            "error": "WEBULL_APP_KEY / WEBULL_APP_SECRET not set",
+            "environment": _environment(),
+            "error": "WEBULL_APP_KEY / WEBULL_APP_SECRET not set (or env-specific *_SANDBOX / *_PROD pair)",
         }
     try:
         accounts = list_accounts()
@@ -151,7 +201,7 @@ def health() -> Dict[str, Any]:
         return {
             "ok": True,
             "configured": True,
-            "environment": _env("WEBULL_ENVIRONMENT", "prod"),
+            "environment": _environment(),
             "region": _env("WEBULL_REGION_ID", "us"),
             "accounts": len(accounts.get("accounts") or []),
         }
@@ -159,7 +209,7 @@ def health() -> Dict[str, Any]:
         return {
             "ok": False,
             "configured": True,
-            "environment": _env("WEBULL_ENVIRONMENT", "prod"),
+            "environment": _environment(),
             "error": str(e)[:300],
         }
 
@@ -175,13 +225,15 @@ def list_accounts() -> Dict[str, Any]:
         for row in _as_rows(data, "accounts", "data", "list", "result"):
             if not isinstance(row, dict):
                 continue
-            account_id = str(_pick(row, "account_id", "accountId", "id") or "")
+            # Opaque Webull account_id only — never account_number (brokerage #) or user id.
+            account_id = str(_pick(row, "account_id", "accountId") or "")
             if not account_id:
                 continue
+            account_number = str(_pick(row, "account_number", "accountNumber") or "")
             accounts.append({
                 "accountId": account_id,
                 "accountType": str(_pick(row, "account_type", "accountType", "type") or ""),
-                "accountNumber": str(_pick(row, "account_number", "accountNumber") or ""),
+                "accountNumber": account_number,
                 "accountClass": str(_pick(row, "account_class", "accountClass", "class") or ""),
                 "label": str(_pick(row, "account_label", "accountLabel", "label", "account_name", "accountName") or ""),
                 "userId": str(_pick(row, "user_id", "userId") or ""),
@@ -547,31 +599,228 @@ def bars_to_records(df) -> List[Dict[str, Any]]:
     return records
 
 
-if __name__ == "__main__":
-    action = sys.argv[1] if len(sys.argv) > 1 else "help"
-    arg2 = sys.argv[2] if len(sys.argv) > 2 else ""
+def _truthy_env(name: str) -> bool:
+    return _env(name, "false").lower() in ("1", "true", "yes", "on")
+
+
+def trading_enabled() -> bool:
+    return _truthy_env("WEBULL_TRADING_ENABLED")
+
+
+def live_trading_enabled() -> bool:
+    return _truthy_env("WEBULL_LIVE_TRADING_ENABLED")
+
+
+def _assert_trading_allowed(force_cli: bool) -> Optional[str]:
+    if force_cli:
+        print("webull_cli force-cli trading bypass", file=sys.stderr)
+        return None
+    if not trading_enabled():
+        return "trading_disabled"
+    if not _is_sandbox_env() and not live_trading_enabled():
+        return "live_trading_disabled"
+    return None
+
+
+def _read_stdin_json() -> Any:
+    raw = sys.stdin.read()
+    if not raw or not raw.strip():
+        return None
+    return json.loads(raw)
+
+
+def _order_v3(trade: Any):
+    order = getattr(trade, "order_v3", None)
+    if order is None:
+        raise RuntimeError("order_v3 not available in installed webull-openapi-python-sdk")
+    return order
+
+
+def preview_order(account_id: str, order: Dict[str, Any], force_cli: bool = False) -> Dict[str, Any]:
+    blocked = _assert_trading_allowed(force_cli)
+    if blocked:
+        return {"error": blocked, "accountId": account_id}
+    if not is_configured():
+        return {"error": "not_configured", "configured": False}
+    try:
+        trade = get_trade_client()
+        data = _response_json(_order_v3(trade).preview_order(account_id=account_id, preview_orders=[order]))
+        return {"accountId": account_id, "preview": data, "configured": True}
+    except Exception as e:
+        return {"error": str(e)[:300], "accountId": account_id, "configured": True}
+
+
+def place_order(account_id: str, order: Dict[str, Any], force_cli: bool = False) -> Dict[str, Any]:
+    blocked = _assert_trading_allowed(force_cli)
+    if blocked:
+        return {"error": blocked, "accountId": account_id}
+    if not is_configured():
+        return {"error": "not_configured", "configured": False}
+    try:
+        trade = get_trade_client()
+        data = _response_json(_order_v3(trade).place_order(account_id=account_id, new_orders=[order]))
+        return {"accountId": account_id, "result": data, "configured": True}
+    except Exception as e:
+        return {"error": str(e)[:300], "accountId": account_id, "configured": True}
+
+
+def replace_order(account_id: str, modify: Dict[str, Any], force_cli: bool = False) -> Dict[str, Any]:
+    blocked = _assert_trading_allowed(force_cli)
+    if blocked:
+        return {"error": blocked, "accountId": account_id}
+    if not is_configured():
+        return {"error": "not_configured", "configured": False}
+    try:
+        trade = get_trade_client()
+        data = _response_json(_order_v3(trade).replace_order(account_id=account_id, modify_orders=[modify]))
+        return {"accountId": account_id, "result": data, "configured": True}
+    except Exception as e:
+        return {"error": str(e)[:300], "accountId": account_id, "configured": True}
+
+
+def cancel_order(account_id: str, client_order_id: str) -> Dict[str, Any]:
+    # Cancels only reduce risk, so they are never gated by the trading flags.
+    if not is_configured():
+        return {"error": "not_configured", "configured": False}
+    try:
+        trade = get_trade_client()
+        data = _response_json(
+            _order_v3(trade).cancel_order(account_id=account_id, client_order_id=client_order_id)
+        )
+        return {"accountId": account_id, "clientOrderId": client_order_id, "result": data, "configured": True}
+    except Exception as e:
+        return {
+            "error": str(e)[:300],
+            "accountId": account_id,
+            "clientOrderId": client_order_id,
+            "configured": True,
+        }
+
+
+def get_order_detail(account_id: str, client_order_id: str) -> Dict[str, Any]:
+    if not is_configured():
+        return {"error": "not_configured", "configured": False}
+    try:
+        trade = get_trade_client()
+        data = _response_json(
+            _order_v3(trade).get_order_detail(account_id=account_id, client_order_id=client_order_id)
+        )
+        return {"accountId": account_id, "clientOrderId": client_order_id, "order": data, "configured": True}
+    except Exception as e:
+        return {
+            "error": str(e)[:300],
+            "accountId": account_id,
+            "clientOrderId": client_order_id,
+            "configured": True,
+        }
+
+
+def get_open_orders(account_id: str) -> Dict[str, Any]:
+    if not is_configured():
+        return {"error": "not_configured", "configured": False, "orders": []}
+    try:
+        trade = get_trade_client()
+        data = _response_json(_order_v3(trade).get_order_open(account_id=account_id, page_size=50))
+        return {"accountId": account_id, "orders": data, "configured": True}
+    except Exception as e:
+        return {"error": str(e)[:300], "accountId": account_id, "orders": [], "configured": True}
+
+
+def get_order_history_v3(account_id: str) -> Dict[str, Any]:
+    if not is_configured():
+        return {"error": "not_configured", "configured": False, "orders": []}
+    try:
+        trade = get_trade_client()
+        data = _response_json(_order_v3(trade).get_order_history(account_id=account_id, page_size=50))
+        return {"accountId": account_id, "orders": data, "configured": True}
+    except Exception as e:
+        return {"error": str(e)[:300], "accountId": account_id, "orders": [], "configured": True}
+
+
+def _missing_account_id() -> Dict[str, Any]:
+    return {"error": "account_id required", "configured": is_configured()}
+
+
+KNOWN_ACTIONS = [
+    "health",
+    "accounts",
+    "balance",
+    "positions",
+    "orders",
+    "snapshot",
+    "snapshots",
+    "bars",
+    "preview",
+    "place",
+    "replace",
+    "cancel",
+    "order-detail",
+    "open-orders",
+    "order-history",
+]
+
+
+def _dispatch(argv: List[str]) -> Any:
+    flags = {a for a in argv if a.startswith("--")}
+    args = [a for a in argv if not a.startswith("--")]
+    force_cli = "--force-cli" in flags
+    action = args[0] if args else "help"
+    arg2 = args[1] if len(args) > 1 else ""
+    arg3 = args[2] if len(args) > 2 else ""
 
     if action == "health":
-        print(json.dumps(health()))
-    elif action == "accounts":
-        print(json.dumps(list_accounts()))
-    elif action == "balance":
-        print(json.dumps(get_balance(arg2)))
-    elif action == "positions":
-        print(json.dumps(get_positions(arg2)))
-    elif action == "orders":
-        print(json.dumps(get_orders(arg2)))
-    elif action == "snapshot":
+        return health()
+    if action == "accounts":
+        return list_accounts()
+    if action == "balance":
+        return _missing_account_id() if not arg2 else get_balance(arg2)
+    if action == "positions":
+        return _missing_account_id() if not arg2 else get_positions(arg2)
+    if action == "orders":
+        return _missing_account_id() if not arg2 else get_orders(arg2)
+    if action == "snapshot":
         snap = get_snapshot(arg2)
-        print(json.dumps(snap if snap else {"error": "unavailable", "symbol": arg2}))
-    elif action == "snapshots":
+        return snap if snap else {"error": "unavailable", "symbol": arg2}
+    if action == "snapshots":
         symbols = [s.strip() for s in arg2.split(",") if s.strip()]
-        print(json.dumps(get_snapshots_batch(symbols)))
-    elif action == "bars":
+        return get_snapshots_batch(symbols)
+    if action == "bars":
         df = get_bars_dataframe(arg2)
-        print(json.dumps({"symbol": arg2, "bars": bars_to_records(df)}))
-    else:
-        print(json.dumps({
-            "error": f"Unknown action: {action}",
-            "actions": ["health", "accounts", "balance", "positions", "orders", "snapshot", "snapshots", "bars"],
-        }))
+        return {"symbol": arg2, "bars": bars_to_records(df)}
+    if action in ("preview", "place", "replace"):
+        if not arg2:
+            return _missing_account_id()
+        body = _read_stdin_json()
+        if not isinstance(body, dict):
+            return {"error": "order JSON required on stdin", "accountId": arg2}
+        if action == "preview":
+            return preview_order(arg2, body, force_cli=force_cli)
+        if action == "place":
+            return place_order(arg2, body, force_cli=force_cli)
+        return replace_order(arg2, body, force_cli=force_cli)
+    if action == "cancel":
+        if not arg2:
+            return _missing_account_id()
+        if not arg3:
+            return {"error": "client_order_id required", "accountId": arg2}
+        return cancel_order(arg2, arg3)
+    if action == "order-detail":
+        if not arg2:
+            return _missing_account_id()
+        if not arg3:
+            return {"error": "client_order_id required", "accountId": arg2}
+        return get_order_detail(arg2, arg3)
+    if action == "open-orders":
+        return _missing_account_id() if not arg2 else get_open_orders(arg2)
+    if action == "order-history":
+        return _missing_account_id() if not arg2 else get_order_history_v3(arg2)
+    return {"error": f"Unknown action: {action}", "actions": KNOWN_ACTIONS}
+
+
+if __name__ == "__main__":
+    _redirect_stdout_to_stderr()
+    _configure_sdk_logging()
+    try:
+        _emit(_dispatch(sys.argv[1:]))
+    except Exception as e:
+        _emit({"error": str(e)[:300]})

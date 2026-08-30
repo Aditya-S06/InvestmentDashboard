@@ -82,6 +82,8 @@ export type AppToolResult = {
 export interface InsightToolExecutionContext {
   userId: string;
   context: InsightContext;
+  /** Gates tools that spend shared quota (YouTube ingest). */
+  isAdmin?: boolean;
   finalOutput?: InsightFinalOutput;
 }
 

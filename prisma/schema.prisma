@@ -29,6 +29,8 @@ model User {
   journalReviews   JournalReview[]
   personalTrades   PersonalTrade[]
   personalReviews  PersonalReview[]
+  brokerOrders     BrokerOrder[]
+  brokerAuditLogs  BrokerAuditLog[]
 }
 
 model Account {
@@ -315,14 +317,20 @@ model PersonalTrade {
   preNotes        String?             @db.Text
   managementNotes String?             @db.Text
   postNotes       String?             @db.Text
+  source          String?
+  webullClientOrderId String?
+  brokerOrderId   String?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brokerOrders    BrokerOrder[]
+  fills           PersonalTradeFill[]
 
   @@index([userId, status])
   @@index([userId, symbol])
   @@index([userId, openedAt])
   @@index([userId, closedAt])
+  @@index([webullClientOrderId])
 }
 
 model PersonalReview {
@@ -342,4 +350,102 @@ model PersonalReview {
 
   @@unique([userId, reviewType, periodStart])
   @@index([userId, periodStart])
+}
+
+model PersonalTradeFill {
+  id        String        @id @default(cuid())
+  tradeId   String
+  qty       Decimal       @db.Decimal(20, 6)
+  price     Decimal       @db.Decimal(20, 4)
+  filledAt  DateTime
+  note      String?       @db.Text
+  createdAt DateTime      @default(now())
+  trade     PersonalTrade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([tradeId, filledAt])
+}
+
+model BrokerOrder {
+  id               String            @id @default(cuid())
+  userId           String
+  accountId        String
+  environment      String
+  clientOrderId    String            @unique
+  webullOrderId    String?
+  symbol           String
+  side             String
+  orderType        String
+  tif              String
+  session          String
+  qty              Decimal           @db.Decimal(20, 6)
+  limitPrice       Decimal?          @db.Decimal(20, 4)
+  stopPrice        Decimal?          @db.Decimal(20, 4)
+  status           String
+  filledQty        Decimal           @default(0) @db.Decimal(20, 6)
+  avgFillPrice     Decimal?          @db.Decimal(20, 4)
+  fees             Decimal           @default(0) @db.Decimal(20, 4)
+  source           String
+  thesis           String?           @db.Text
+  invalidation     String?           @db.Text
+  preNotes         String?           @db.Text
+  setupTag         String?
+  strategyTag      String?
+  sourceUrl        String?
+  personalTradeId  String?
+  payloadHash      String
+  previewId        String?           @unique
+  previewExpiresAt DateTime?
+  previewConsumed  Boolean           @default(false)
+  webullPreview    Json?
+  rawPlace         Json?
+  lastWebullDetail Json?
+  instrumentType   String            @default("EQUITY")
+  comboType        String            @default("NORMAL")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  fills            BrokerOrderFill[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personalTrade    PersonalTrade?    @relation(fields: [personalTradeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([userId, symbol])
+  @@index([accountId, status])
+  @@index([environment, createdAt])
+}
+
+model BrokerOrderFill {
+  id            String      @id @default(cuid())
+  brokerOrderId String
+  filledQty     Decimal     @db.Decimal(20, 6)
+  filledPrice   Decimal     @db.Decimal(20, 4)
+  filledAt      DateTime
+  sceneType     String?
+  raw           Json?
+  brokerOrder   BrokerOrder @relation(fields: [brokerOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerOrderId, filledQty, filledAt])
+}
+
+model BrokerAuditLog {
+  id            String   @id @default(cuid())
+  userId        String
+  action        String
+  environment   String
+  clientOrderId String?
+  ip            String?
+  payload       Json?
+  result        Json?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([clientOrderId])
+  @@index([userId, createdAt])
+}
+
+model TradingSettings {
+  id         String   @id @default("default")
+  killSwitch Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+  updatedBy  String?
 }

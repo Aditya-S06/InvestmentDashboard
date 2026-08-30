@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
         userId,
         sessionId: insightSession.id,
         modelId,
+        isAdmin: auth.isAdmin,
         messages: history.map((item) => ({
           role: item.role === 'assistant' ? 'assistant' : 'user',
           content: item.content,
@@ -114,9 +115,12 @@ export async function POST(req: NextRequest) {
       });
     } catch (error: any) {
       const raw = error?.message || 'AI Insights failed';
+      console.error('[insights/chat]', raw);
+      // Upstream messages can carry keys, prompts, and stack detail — only the
+      // actionable OpenRouter tooling case is surfaced verbatim.
       const message = /server tool request failed/i.test(raw)
         ? 'OpenRouter web search/fetch failed. Check your OpenRouter credits/billing for Exa web tools, then retry. Analysis can still work from market data alone after a refresh.'
-        : raw;
+        : 'AI Insights could not complete this request. Check the server logs and retry.';
       await send('error', { message });
     } finally {
       await writer.close();

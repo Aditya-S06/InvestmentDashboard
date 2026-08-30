@@ -1,13 +1,13 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireUser } from '@/lib/auth/require-user';
+import { serverError } from '@/lib/http/errors';
 import { listYoutubeSummaries } from '@/lib/youtube/db';
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
 
   try {
     const sp = req.nextUrl.searchParams;
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({ items, count: items.length });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed to list summaries' }, { status: 500 });
+  } catch (error) {
+    return serverError('youtube/summaries', error, 'Could not load video summaries');
   }
 }

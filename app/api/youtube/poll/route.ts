@@ -2,8 +2,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth/require-admin';
+import { serverError } from '@/lib/http/errors';
 import { runYoutube } from '@/lib/python-runner';
 import {
   readChannelsConfig,
@@ -15,8 +15,8 @@ import { upsertFromIngestResult } from '@/lib/youtube/db';
 import fs from 'fs';
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if ('error' in auth) return auth.error;
 
   if (!youtubeApiConfigured()) {
     return NextResponse.json(
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       result: ingestResult,
       polledAt: new Date().toISOString(),
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Poll failed' }, { status: 500 });
+  } catch (error) {
+    return serverError('youtube/poll', error, 'Channel poll failed');
   }
 }

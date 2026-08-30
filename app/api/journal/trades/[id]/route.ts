@@ -36,6 +36,19 @@ export async function PATCH(request: Request, context: RouteContext) {
     const existing = await getPersonalTrade(userId, id);
     const body = await readJsonObject(request);
 
+    if (existing.broker === 'webull' && (body.qty != null || body.entryPrice != null || body.avgEntry != null)) {
+      const working = await prisma.brokerOrder.findFirst({
+        where: {
+          userId,
+          personalTradeId: existing.id,
+          status: { notIn: ['FILLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'FAILED'] },
+        },
+      });
+      if (working) {
+        throw new Error('Fill prices/qty are locked while the linked Webull order is working');
+      }
+    }
+
     const exitPrice = optionalDecimal(body.exitPrice ?? body.avgExit, 'exitPrice');
     const closedAt = optionalDate(body.closedAt ?? body.exitDate, 'closedAt');
     const fees = optionalDecimal(body.fees, 'fees');

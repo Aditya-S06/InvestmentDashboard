@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ImagePlus,
   Loader2,
+  Newspaper,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -15,13 +16,14 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   DEFAULT_INSIGHTS_MODEL_ID,
   INSIGHTS_MODEL_OPTIONS,
   type InsightsModelId,
 } from '@/lib/insights/models';
 import type { InsightChatMetadata, InsightImageAttachment, InsightSessionSummary } from '@/lib/insights/types';
-import { useDashboard } from '../../_components/dashboard-provider';
+import { useWatchlist } from '../../_components/watchlist-provider';
 import { DetailModal } from '../../_components/detail-modal';
 import { SettingsModal } from '../../_components/settings-modal';
 import { InsightsChat, type InsightUiMessage } from './insights-chat';
@@ -43,7 +45,7 @@ interface PendingImage extends InsightImageAttachment {
 }
 
 export function InsightsClient() {
-  const { watchlist, toggleWatchlist } = useDashboard();
+  const { watchlist, toggleWatchlist } = useWatchlist();
   const [access, setAccess] = useState<AccessState>({
     loading: true,
     hasAccess: false,
@@ -64,6 +66,7 @@ export function InsightsClient() {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [briefing, setBriefing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +145,27 @@ export function InsightsClient() {
     setStatus(null);
     setPendingImages([]);
     setAttachError(null);
+  };
+
+  const runDailyBrief = async () => {
+    setBriefing(true);
+    // The brief runs the full tool loop server-side, so warn about the wait.
+    toast.info('Building your daily brief — this takes a minute.');
+    try {
+      const res = await fetch('/api/insights/brief', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        toast.error(data?.error ?? 'Daily brief failed');
+        return;
+      }
+      await fetchSessions();
+      await loadSession(data.sessionId);
+      toast.success(`${data.title ?? 'Daily brief'} ready`);
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Daily brief failed');
+    } finally {
+      setBriefing(false);
+    }
   };
 
   const addImageFiles = async (files: FileList | File[]) => {
@@ -315,6 +339,18 @@ export function InsightsClient() {
           </div>
 
           <div className="flex items-center gap-1">
+            {access.hasAccess && access.isAdmin && (
+              <button
+                type="button"
+                onClick={() => void runDailyBrief()}
+                disabled={briefing || sending}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                title="Run a watchlist + macro brief and save it as a session"
+              >
+                {briefing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Newspaper className="h-3.5 w-3.5" />}
+                {briefing ? 'Briefing...' : 'Daily brief'}
+              </button>
+            )}
             {access.hasAccess && (
               <button
                 type="button"

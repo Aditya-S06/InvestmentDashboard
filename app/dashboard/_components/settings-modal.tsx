@@ -7,6 +7,8 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+type HealthCheck = { name: string; ok: boolean; detail?: string };
+
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const [alphaVantageKey, setAlphaVantageKey] = useState('');
   const [polygonKey, setPolygonKey] = useState('');
@@ -16,6 +18,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [existingKeys, setExistingKeys] = useState<{ provider: string; hasKey: boolean }[]>([]);
+  const [health, setHealth] = useState<HealthCheck[] | null>(null);
 
   useEffect(() => {
     fetch('/api/insights/access')
@@ -24,6 +27,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         setIsAdmin(!!data?.isAdmin);
         setAdminKeyConfigured(!!data?.adminKeyConfigured);
       })
+      .catch(() => {});
+
+    // 403 for non-admins, which simply hides the panel.
+    fetch('/api/health')
+      .then((r) => (r.ok || r.status === 503 ? r.json() : null))
+      .then((data) => setHealth(Array.isArray(data?.checks) ? data.checks : null))
       .catch(() => {});
 
     fetch('/api/settings/apikeys')
@@ -122,6 +131,29 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 className="w-full px-3 py-2 bg-secondary border border-border rounded-md text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-[#00c853]"
               />
               <p className="mt-1 text-[10px] text-muted-foreground">Stored for your account only. Used server-side for your AI Insights requests.</p>
+            </div>
+          )}
+
+          {health && (
+            <div className="rounded-md border border-border bg-secondary/30 px-3 py-2">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                System health
+              </p>
+              <ul className="space-y-1">
+                {health.map((check) => (
+                  <li key={check.name} className="flex items-start justify-between gap-2 text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${check.ok ? 'bg-[#00c853]' : 'bg-red-400'}`}
+                      />
+                      {check.name}
+                    </span>
+                    <span className="text-right text-[10px] text-muted-foreground">
+                      {check.detail ?? (check.ok ? 'ok' : 'unavailable')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession, signOut } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { MacroRibbon } from './macro-ribbon';
 import { TickerSearch } from './ticker-search';
@@ -9,24 +9,15 @@ import { TickerGrid } from './ticker-grid';
 import { WatchlistSidebar } from './watchlist-sidebar';
 import { DetailModal } from './detail-modal';
 import { SettingsModal } from './settings-modal';
-import { BrokerPanel } from './broker-panel';
-import { useDashboard } from './dashboard-provider';
-import { Activity, LogOut, Settings, ChevronRight, ChevronLeft, Sparkles, Youtube, BookOpenCheck, WalletCards } from 'lucide-react';
+import { useQuotes } from './quotes-provider';
+import { useWatchlist } from './watchlist-provider';
+import { Settings, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export function DashboardClient() {
-  const { data: session, status } = useSession() || {};
+  const { status } = useSession() || {};
   const router = useRouter();
-  const {
-    tickers,
-    watchlist,
-    watchlistPrices,
-    macro,
-    loadingTickers,
-    loadingWatchlist,
-    addTicker,
-    removeTicker,
-    toggleWatchlist,
-  } = useDashboard();
+  const { tickers, watchlistPrices, macro, loadingTickers, addTicker, removeTicker } = useQuotes();
+  const { watchlist, loadingWatchlist, toggleWatchlist } = useWatchlist();
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [showWatchlist, setShowWatchlist] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -51,50 +42,15 @@ export function DashboardClient() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-full bg-background flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-sm border-b border-border">
         <div className="flex items-center justify-between px-4 py-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-[#00c853]/10 border border-[#00c853]/30 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-[#00c853]" />
-            </div>
-            <span className="font-display font-bold text-base tracking-tight hidden sm:block">Market Intel</span>
-          </div>
-
-          <div className="flex-1 max-w-xl mx-4">
+          <div className="flex-1 max-w-xl">
             <TickerSearch onSelectTicker={addTicker} />
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => router.push('/dashboard/insights')}
-              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="AI Insights"
-            >
-              <Sparkles className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => router.push('/dashboard/youtube-analysis')}
-              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="YouTube Analysis"
-            >
-              <Youtube className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => router.push('/dashboard/paper')}
-              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Paper Portfolio (simulation)"
-            >
-              <WalletCards className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => router.push('/dashboard/journal')}
-              className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Trade Journal (personal)"
-            >
-              <BookOpenCheck className="w-4 h-4" />
-            </button>
             <button
               onClick={() => setShowSettings(true)}
               className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
@@ -108,16 +64,6 @@ export function DashboardClient() {
             >
               {showWatchlist ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-border">
-              <span className="text-xs text-muted-foreground">{session?.user?.name || session?.user?.email}</span>
-              <button
-                onClick={() => signOut({ callbackUrl: '/login' })}
-                className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                title="Sign Out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
           </div>
         </div>
         <MacroRibbon data={macro} />
@@ -126,7 +72,6 @@ export function DashboardClient() {
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-y-auto p-4">
-          <BrokerPanel />
           <TickerGrid
             tickers={tickers}
             watchlist={watchlist}

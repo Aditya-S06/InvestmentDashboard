@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Star, AlertTriangle, TrendingUp, TrendingDown, Loader2, Shield, Target, BarChart3, Newspaper, Sparkles, ExternalLink, Info, BrainCircuit, Gauge, NotebookPen } from 'lucide-react';
+import { X, Star, AlertTriangle, TrendingUp, TrendingDown, Loader2, Shield, Target, BarChart3, Newspaper, Sparkles, ExternalLink, Info, BrainCircuit, Gauge, NotebookPen, ArrowLeftRight } from 'lucide-react';
 import type { FullTickerData, NewsItem, ExitSignal } from '@/lib/types';
 import { PriceChart } from './price-chart';
 import { RsiGauge } from './rsi-gauge';
 import { MacdChart } from './macd-chart';
+import { useTradeTicketOptional } from './trade-ticket-provider';
 
 interface DetailModalProps {
   symbol: string;
@@ -44,6 +45,7 @@ function CredibilityBadge({ level }: { level: string }) {
 
 export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist }: DetailModalProps) {
   const router = useRouter();
+  const trade = useTradeTicketOptional();
   const [data, setData] = useState<FullTickerData | null>(null);
   const [historical, setHistorical] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,10 +94,28 @@ export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist 
             </button>
           </div>
           <div className="flex items-center gap-2">
+            {trade && (
+              <button
+                type="button"
+                onClick={() =>
+                  trade.openTradeTicket({
+                    symbol,
+                    side: 'BUY',
+                    source: 'detail',
+                    lastPrice: ticker?.price ?? data?.webull_quote?.last,
+                    preNotes: strategySignals?.notes,
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded-md bg-[#00c853] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-90"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                Trade
+              </button>
+            )}
             <button
               type="button"
               onClick={() => router.push(`/dashboard/paper?new=1&symbol=${encodeURIComponent(symbol)}`)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[#00c853] px-3 py-1.5 text-xs font-semibold text-black transition-opacity hover:opacity-90"
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#00c853]/30 bg-[#00c853]/10 px-3 py-1.5 text-xs font-semibold text-[#00c853] transition-opacity hover:opacity-90"
             >
               <NotebookPen className="h-3.5 w-3.5" />
               Plan paper trade

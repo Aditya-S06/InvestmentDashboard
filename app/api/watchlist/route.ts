@@ -1,8 +1,9 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireUser } from '@/lib/auth/require-user';
+import { serverError } from '@/lib/http/errors';
+import { normalizeMarketSymbol } from '@/lib/market/symbol';
 import { prisma } from '@/lib/prisma';
 import { groupWatchlistBySector, sectorForTicker, sectorSortIndex } from '@/lib/watchlist-sectors';
 
@@ -16,10 +17,9 @@ function serializeWatchlistItem(i: { id: string; ticker: string; sector: string 
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const userId = (session.user as any)?.id;
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { userId } = auth;
 
   try {
     const items = await prisma.watchlist.findMany({
@@ -39,21 +39,20 @@ export async function GET() {
       items: serialized,
       sectors: groupWatchlistBySector(serialized),
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed' }, { status: 500 });
+  } catch (error) {
+    return serverError('watchlist/get', error, 'Could not load the watchlist');
   }
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const userId = (session.user as any)?.id;
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { userId } = auth;
 
   try {
     const body = await req.json();
-    const ticker = body?.ticker?.toUpperCase?.();
-    if (!ticker) return NextResponse.json({ error: 'Ticker required' }, { status: 400 });
+    const ticker = normalizeMarketSymbol(body?.ticker);
+    if (!ticker) return NextResponse.json({ error: 'A valid ticker is required' }, { status: 400 });
 
     const sector = body?.sector?.trim() || sectorForTicker(ticker);
 
@@ -63,24 +62,23 @@ export async function POST(req: NextRequest) {
       create: { userId, ticker, sector },
     });
     return NextResponse.json(serializeWatchlistItem(item), { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed' }, { status: 500 });
+  } catch (error) {
+    return serverError('watchlist/post', error, 'Could not add that ticker');
   }
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const userId = (session.user as any)?.id;
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { userId } = auth;
 
   try {
-    const ticker = req.nextUrl.searchParams.get('ticker')?.toUpperCase?.();
-    if (!ticker) return NextResponse.json({ error: 'Ticker required' }, { status: 400 });
+    const ticker = normalizeMarketSymbol(req.nextUrl.searchParams.get('ticker'));
+    if (!ticker) return NextResponse.json({ error: 'A valid ticker is required' }, { status: 400 });
 
     await prisma.watchlist.deleteMany({ where: { userId, ticker } });
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed' }, { status: 500 });
+  } catch (error) {
+    return serverError('watchlist/delete', error, 'Could not remove that ticker');
   }
 }

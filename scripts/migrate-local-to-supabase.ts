@@ -5,7 +5,7 @@
  * Usage (with .env pointing at Supabase):
  *   npx tsx --require dotenv/config scripts/migrate-local-to-supabase.ts
  */
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 
@@ -185,7 +185,7 @@ async function main() {
           publishedAt: row.publishedAt,
           url: row.url,
           transcriptLength: row.transcriptLength,
-          summary: row.summary ?? undefined,
+          summary: row.summary ?? Prisma.JsonNull,
           rawTranscriptSnippet: row.rawTranscriptSnippet,
           stockMentions: row.stockMentions,
           processedAt: row.processedAt,

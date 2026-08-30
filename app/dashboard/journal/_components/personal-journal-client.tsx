@@ -395,7 +395,14 @@ export function PersonalJournalClient() {
                             onClick={() => setSelected(trade)}
                             className="cursor-pointer border-t border-border hover:bg-secondary/30"
                           >
-                            <td className="px-3 py-2 font-mono font-semibold">{trade.symbol}</td>
+                            <td className="px-3 py-2 font-mono font-semibold">
+                              {trade.symbol}
+                              {trade.broker === 'webull' && (
+                                <span className="ml-2 rounded-full border border-[#00c853]/30 px-1.5 py-0.5 text-[9px] font-sans font-medium text-[#00c853]">
+                                  synced
+                                </span>
+                              )}
+                            </td>
                             <td className="px-3 py-2">{trade.side}</td>
                             <td className="px-3 py-2">{trade.status}</td>
                             <td className="px-3 py-2 font-mono">{money(trade.entryPrice)}</td>
@@ -591,6 +598,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="rounded-md border border-dashed border-border px-6 py-16 text-center">
       <p className="text-sm text-muted-foreground">No personal trades logged yet.</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Live Webull fills sync here automatically; sandbox orders do not.
+      </p>
       <button onClick={onAdd} className="mt-3 rounded-md bg-[#60B5FF] px-3 py-2 text-xs font-semibold text-black">
         Log your first trade
       </button>

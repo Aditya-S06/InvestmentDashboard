@@ -1,8 +1,9 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth/require-admin';
+import { requireUser } from '@/lib/auth/require-user';
+import { serverError } from '@/lib/http/errors';
 import {
   readChannelsConfig,
   writeChannelsConfig,
@@ -11,8 +12,8 @@ import {
 } from '@/lib/youtube/channels';
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
 
   try {
     const config = readChannelsConfig();
@@ -21,14 +22,14 @@ export async function GET() {
       youtubeApiConfigured: youtubeApiConfigured(),
       openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed' }, { status: 500 });
+  } catch (error) {
+    return serverError('youtube/channels', error, 'Could not load channel config');
   }
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if ('error' in auth) return auth.error;
 
   try {
     const body = await req.json();
@@ -46,7 +47,7 @@ export async function PUT(req: NextRequest) {
       youtubeApiConfigured: youtubeApiConfigured(),
       openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY?.trim()),
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed to save channels' }, { status: 500 });
+  } catch (error) {
+    return serverError('youtube/channels/save', error, 'Could not save channel config');
   }
 }

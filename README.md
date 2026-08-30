@@ -86,7 +86,7 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 **Development seed account** (created by seed): `john@doe.com` / `johndoe123`  
-Change or remove this user before any production deployment.
+Change or remove this user before any production deployment. Set `SEED_DEMO_USER=false` before seeding a public instance. Keep `ALLOW_PUBLIC_SIGNUP=false` unless you intend open registration. See [SECURITY.md](SECURITY.md).
 
 ### NPM scripts
 
@@ -100,6 +100,7 @@ Change or remove this user before any production deployment.
 | `npm run db:push` | Apply Prisma schema (uses `DIRECT_URL`) |
 | `npm run db:seed` | Seed demo user and starter watchlist |
 | `npm run setup` | `prisma generate` + `db push` + `seed` |
+| `npm test` | Run Vitest (signup/login smoke + Webull order tests) |
 
 ### Optional: local Docker Postgres
 
@@ -117,8 +118,11 @@ npm run setup
 | `DATABASE_URL` | Yes | Supabase **pooler** URL (port `6543`, `pgbouncer=true`) |
 | `DIRECT_URL` | Yes | Supabase **session/direct** URL (port `5432`) for migrations/seed |
 | `SUPABASE_URL` | Recommended | `https://<project-ref>.supabase.co` |
-| `NEXTAUTH_SECRET` | Yes | Random secret for session signing |
+| `NEXTAUTH_SECRET` | Yes | Random secret for session signing (production refuses the example placeholder) |
 | `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`) |
+| `TRUST_PROXY` | No | Set `true` only when a reverse proxy overwrites `X-Forwarded-For`. Vercel is trusted automatically. |
+| `ALLOW_PUBLIC_SIGNUP` | No | Default `false`. Open registration is off unless set to `true`. |
+| `SEED_DEMO_USER` | No | Set `false` before a public deploy so seed does not create the demo account. |
 | `OPENROUTER_API_KEY` | For admin Insights / YouTube summaries | Server OpenRouter key |
 | `ADMIN_EMAILS` | Recommended | Comma-separated admin emails |
 | `YOUTUBE_API_KEY` | For YouTube Analysis | Google Cloud YouTube Data API v3 key |

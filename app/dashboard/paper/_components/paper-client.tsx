@@ -308,8 +308,8 @@ export function PaperClient() {
               <Target className="h-4 w-4 text-[#00c853]" />
             </div>
             <div>
-              <h1 className="font-display text-base font-semibold tracking-tight">Paper Portfolio</h1>
-              <p className="text-xs text-muted-foreground">Simulation only — plan → enter → manage → review</p>
+              <h1 className="font-display text-base font-semibold tracking-tight">Simulator</h1>
+              <p className="text-xs text-muted-foreground">Local practice book — plan → enter → manage → review</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -343,7 +343,7 @@ export function PaperClient() {
       </header>
 
       <div className="border-b border-[#ffa726]/20 bg-[#ffa726]/5 px-4 py-2 text-center text-[10px] text-[#ffa726]">
-        PAPER / SIMULATION ONLY — no brokerage orders are placed.
+        LOCAL SIMULATOR — this cash is not your Webull sandbox or live balance, and no broker orders are placed.
       </div>
 
       <main className="mx-auto max-w-7xl p-4 sm:p-6">

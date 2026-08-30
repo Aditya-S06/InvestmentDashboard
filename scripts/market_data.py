@@ -26,10 +26,13 @@ def safe_str(val, default=""):
 
 def get_ticker_data(symbol):
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info or {}
-        
-        # Basic info
+        info = yf.Ticker(symbol).info or {}
+        return _quote_from_info(symbol, info)
+    except Exception as e:
+        return {"symbol": symbol.upper(), "error": str(e)}
+
+def _quote_from_info(symbol, info):
+    try:
         result = {
             "symbol": symbol.upper(),
             "name": info.get("longName") or info.get("shortName") or symbol.upper(),
@@ -456,8 +459,16 @@ def compute_sentiment(symbol):
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="3mo")
-        info = ticker.info or {}
-        
+        try:
+            news = ticker.news or []
+        except Exception:
+            news = []
+        return _sentiment_from(hist, news)
+    except Exception as e:
+        return {"score": 50, "label": "Neutral", "components": {}, "error": str(e)}
+
+def _sentiment_from(hist, news):
+    try:
         if hist.empty or len(hist) < 20:
             return {"score": 50, "label": "Neutral", "components": {}}
         
@@ -490,7 +501,6 @@ def compute_sentiment(symbol):
         
         # 4. News keyword sentiment (simplified)
         try:
-            news = ticker.news or []
             positive_keywords = ["surge", "rally", "beat", "upgrade", "growth", "bullish", "strong", "record", "boost", "gain", "buy", "outperform"]
             negative_keywords = ["crash", "plunge", "miss", "downgrade", "bearish", "weak", "decline", "loss", "sell", "warning", "risk", "fear"]
             pos_count = 0
@@ -544,9 +554,12 @@ def compute_risk_score(symbol):
     """Risk Score from Beta, IV Rank proxy, and D/E ratio"""
     try:
         ticker = yf.Ticker(symbol)
-        info = ticker.info or {}
-        hist = ticker.history(period="1y")
-        
+        return _risk_from(ticker.history(period="1y"), ticker.info or {})
+    except Exception as e:
+        return {"score": 50, "components": {}, "error": str(e)}
+
+def _risk_from(hist, info):
+    try:
         # Beta component (0-100, higher beta = higher risk)
         beta = safe_float(info.get("beta"), 1.0)
         beta_score = min(100, max(0, (beta - 0.5) * 40 + 30))  # 0.5 beta=10, 1.0=30, 2.0=70, 3.0=110->100
@@ -790,6 +803,30 @@ def get_trends(symbol):
     except:
         return []
 
+def build_card(symbol):
+    """Grid/sidebar card: quote + sentiment + risk from a single Yahoo fetch."""
+    symbol = (symbol or "").strip()
+    if not symbol:
+        return {"symbol": "", "error": "symbol required"}
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info or {}
+        hist = ticker.history(period="1y")
+        try:
+            news = ticker.news or []
+        except Exception:
+            news = []
+    except Exception as e:
+        return {"symbol": symbol.upper(), "error": str(e)[:200]}
+
+    card = _quote_from_info(symbol, info)
+    if card.get("error"):
+        return card
+    # compute_sentiment normally reads 3 months; ~63 sessions is the same window.
+    card["sentiment"] = _sentiment_from(hist.tail(63), news)
+    card["risk"] = _risk_from(hist, info)
+    return card
+
 def resolve_history(symbol: str):
     """Yahoo daily bars for quant/strategy. Returns (hist_df, source)."""
     try:
@@ -829,6 +866,11 @@ if __name__ == "__main__":
         print(json.dumps(search_ticker(symbol)))
     elif action == "trends":
         print(json.dumps(get_trends(symbol)))
+    elif action == "card":
+        print(json.dumps(build_card(symbol)))
+    elif action == "cards":
+        symbols = [s.strip() for s in (symbol or "").split(",") if s.strip()][:40]
+        print(json.dumps({"cards": [build_card(s) for s in symbols]}))
     elif action == "snapshots":
         # Yahoo-only batch quotes for Insights watchlist context
         symbols = [s.strip() for s in (symbol or "").split(",") if s.strip()]

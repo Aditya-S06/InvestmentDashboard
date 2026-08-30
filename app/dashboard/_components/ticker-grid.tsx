@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Star, X, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import type { TickerCardData, WatchlistItem } from '@/lib/types';
 import { DRAG_MIME } from './watchlist-sidebar';
+import { useTradeTicketOptional } from './trade-ticket-provider';
 
 function formatPrice(n: number | null | undefined): string {
   if (n === null || n === undefined || isNaN(n) || n === 0) return '—';
@@ -83,6 +84,7 @@ export function TickerGrid({
   onDropTicker,
 }: TickerGridProps) {
   const [dragOver, setDragOver] = useState(false);
+  const trade = useTradeTicketOptional();
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -210,6 +212,40 @@ export function TickerGrid({
             {/* Sentiment */}
             {ticker?.sentiment && (
               <SentimentBar score={ticker.sentiment.score} label={ticker.sentiment.label} />
+            )}
+            {trade && (
+              <div className="mt-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  type="button"
+                  className="flex-1 rounded bg-[#00c853]/15 px-2 py-1 text-[10px] font-semibold text-[#00c853]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    trade.openTradeTicket({
+                      symbol: ticker.symbol,
+                      side: 'BUY',
+                      source: 'grid',
+                      lastPrice: ticker.price,
+                    });
+                  }}
+                >
+                  Buy
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded bg-red-500/15 px-2 py-1 text-[10px] font-semibold text-red-300"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    trade.openTradeTicket({
+                      symbol: ticker.symbol,
+                      side: 'SELL',
+                      source: 'grid',
+                      lastPrice: ticker.price,
+                    });
+                  }}
+                >
+                  Sell
+                </button>
+              </div>
             )}
           </div>
         );

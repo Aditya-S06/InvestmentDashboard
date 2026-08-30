@@ -1,8 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ExternalLink, NotebookPen, TrendingUp } from 'lucide-react';
+import { ExternalLink, NotebookPen, TrendingUp, ArrowLeftRight } from 'lucide-react';
 import type { InsightPick } from '@/lib/insights/types';
+import { useTradeTicketOptional } from '../../_components/trade-ticket-provider';
 
 interface InsightPickCardProps {
   pick: InsightPick;
@@ -17,6 +18,7 @@ const confidenceClass: Record<InsightPick['confidence'], string> = {
 
 export function InsightPickCard({ pick, onSelectTicker }: InsightPickCardProps) {
   const router = useRouter();
+  const trade = useTradeTicketOptional();
 
   const planPaperTrade = () => {
     sessionStorage.setItem(
@@ -77,14 +79,36 @@ export function InsightPickCard({ pick, onSelectTicker }: InsightPickCardProps) 
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={planPaperTrade}
-        className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-[#00c853]/30 bg-[#00c853]/10 px-3 py-2 text-xs font-semibold text-[#00c853] transition-colors hover:bg-[#00c853]/15"
-      >
-        <NotebookPen className="h-3.5 w-3.5" />
-        Plan paper trade
-      </button>
+      <div className="mt-4 flex gap-2">
+        {trade && (
+          <button
+            type="button"
+            onClick={() =>
+              trade.openTradeTicket({
+                symbol: pick.symbol,
+                side: 'BUY',
+                source: 'insights',
+                thesis: pick.thesis,
+                preNotes: pick.signals.join('\n'),
+                setupTag: 'insights',
+                sourceUrl: pick.sources?.[0],
+              })
+            }
+            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[#00c853] px-3 py-2 text-xs font-semibold text-black"
+          >
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+            Trade
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={planPaperTrade}
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-[#00c853]/30 bg-[#00c853]/10 px-3 py-2 text-xs font-semibold text-[#00c853] transition-colors hover:bg-[#00c853]/15"
+        >
+          <NotebookPen className="h-3.5 w-3.5" />
+          Plan paper trade
+        </button>
+      </div>
     </div>
   );
 }

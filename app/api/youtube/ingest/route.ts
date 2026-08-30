@@ -5,8 +5,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAdmin } from '@/lib/auth/require-admin';
+import { serverError } from '@/lib/http/errors';
 import { runYoutube } from '@/lib/python-runner';
 import { youtubeApiConfigured } from '@/lib/youtube/channels';
 import { upsertFromIngestResult, upsertYoutubeSummary } from '@/lib/youtube/db';
@@ -19,8 +19,8 @@ import { prisma } from '@/lib/prisma';
  * - { url | videoId, transcript } → summarize with pasted transcript
  */
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if ('error' in auth) return auth.error;
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
       item,
       result: ingestResult,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Ingest failed' }, { status: 500 });
+  } catch (error) {
+    return serverError('youtube/ingest', error, 'Video ingest failed');
   }
 }

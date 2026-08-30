@@ -1,0 +1,19 @@
+---
+description: .env.example must use placeholders only — no real project refs or tokens
+globs: .env.example
+alwaysApply: false
+---
+
+# Placeholders only in `.env.example`
+
+`.env.example` is committed. A real Supabase project ref was committed here before.
+
+**Do**
+
+- Use `YOUR_PROJECT_REF`, `[YOUR-PASSWORD]`, `YOUR-REGION`, and empty strings for API keys.
+- Keep `NEXTAUTH_SECRET` as an obvious placeholder (`replace-with-a-long-random-string`).
+
+**Do not**
+
+- Paste a real Supabase host, project ref, database password, API key, or Webull token.
+- Copy values from a local `.env` into `.env.example`.

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, FileText, Loader2 } from 'lucide-react';
+import { useTradeTicketOptional } from '../../_components/trade-ticket-provider';
 
 export interface VideoSummaryItem {
   id: string;
@@ -48,6 +49,7 @@ export function VideoSummaryCard({ item, onSelectTicker, onResummarize, resummar
   const [showPaste, setShowPaste] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
+  const trade = useTradeTicketOptional();
 
   const summary = item.summary ?? {};
   const confidence = String(summary.confidence || 'low').toLowerCase();
@@ -132,14 +134,41 @@ export function VideoSummaryCard({ item, onSelectTicker, onResummarize, resummar
       {tickers.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {tickers.map((sym) => (
-            <button
-              key={sym}
-              type="button"
-              onClick={() => onSelectTicker?.(sym)}
-              className="px-2 py-0.5 rounded-md text-xs font-mono bg-[#00c853]/10 text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/20 transition-colors"
-            >
-              {sym}
-            </button>
+            <span key={sym} className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onSelectTicker?.(sym)}
+                className="px-2 py-0.5 rounded-md text-xs font-mono bg-[#00c853]/10 text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/20 transition-colors"
+              >
+                {sym}
+              </button>
+              {trade && (
+                <button
+                  type="button"
+                  className="px-1.5 py-0.5 rounded-md text-[10px] border border-border text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    trade.openTradeTicket({
+                      symbol: sym,
+                      side: 'BUY',
+                      source: 'youtube',
+                      thesis: summary.key_thesis,
+                      preNotes: [
+                        `YouTube: ${item.title}`,
+                        item.url,
+                        Array.isArray(summary.signals) ? `Signals: ${summary.signals.join('; ')}` : '',
+                        Array.isArray(summary.risks) ? `Risks: ${summary.risks.join('; ')}` : '',
+                      ]
+                        .filter(Boolean)
+                        .join('\n'),
+                      setupTag: 'catalyst',
+                      sourceUrl: item.url,
+                    })
+                  }
+                >
+                  Trade
+                </button>
+              )}
+            </span>
           ))}
         </div>
       )}

@@ -1,15 +1,22 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/require-user';
+import { invalidSymbol, marketError } from '@/lib/market/http';
+import { normalizeMarketSymbol } from '@/lib/market/symbol';
 import { runPython } from '@/lib/python-runner';
 
 export async function GET(req: NextRequest) {
-  const symbol = req.nextUrl.searchParams.get('symbol');
-  if (!symbol) return NextResponse.json({ error: 'Symbol required' }, { status: 400 });
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
+  const symbol = normalizeMarketSymbol(req.nextUrl.searchParams.get('symbol'));
+  if (!symbol) return invalidSymbol();
+
   try {
     const data = await runPython(['sentiment', symbol]);
     return NextResponse.json(data);
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Failed' }, { status: 500 });
+  } catch (error) {
+    return marketError('sentiment', error);
   }
 }

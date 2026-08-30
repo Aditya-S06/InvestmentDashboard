@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Save, X } from 'lucide-react';
 import { Area, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { toast } from 'sonner';
 import type { PaperTrade } from './paper-types';
 
 interface TradeDetailDrawerProps {
@@ -154,9 +155,11 @@ export function TradeDetailDrawer({ trade, onClose, onChanged }: TradeDetailDraw
       if (!response.ok) throw new Error(data?.error || 'Could not add the fill.');
       setCurrent(unwrapTrade(data));
       setFillQty('');
+      toast.success(`Simulated ${action} ${qty} ${current.symbol} @ ${price}`);
       onChanged();
     } catch (fillError: any) {
       setError(fillError?.message || 'Could not add the fill.');
+      toast.error(fillError?.message || 'Could not add the fill.');
     } finally {
       setSaving(false);
     }

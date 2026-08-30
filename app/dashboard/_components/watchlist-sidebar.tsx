@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Star, TrendingUp, TrendingDown, Bookmark, ChevronDown, ChevronRight, GripVertical } from 'lucide-react';
 import type { TickerCardData, WatchlistItem } from '@/lib/types';
 import { groupWatchlistBySector } from '@/lib/watchlist-sectors';
+import { useTradeTicketOptional } from './trade-ticket-provider';
 
 const DRAG_MIME = 'application/x-market-intel-ticker';
 
@@ -27,6 +28,7 @@ function WatchlistRow({
   onRemove: (symbol: string) => void;
 }) {
   const isPositive = (data?.change ?? 0) >= 0;
+  const trade = useTradeTicketOptional();
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData(DRAG_MIME, item.ticker);
@@ -55,6 +57,23 @@ function WatchlistRow({
             >
               <Star className="w-3 h-3 fill-[#ffa726] text-[#ffa726]" />
             </button>
+            {trade && (
+              <button
+                type="button"
+                className="rounded border border-border px-1 py-0.5 text-[9px] text-muted-foreground hover:text-foreground"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  trade.openTradeTicket({
+                    symbol: item.ticker,
+                    side: 'BUY',
+                    source: 'watchlist',
+                    lastPrice: data?.price,
+                  });
+                }}
+              >
+                Trade
+              </button>
+            )}
           </div>
           {data?.name && <p className="text-[9px] text-muted-foreground truncate">{data.name}</p>}
         </div>

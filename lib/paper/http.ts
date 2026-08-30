@@ -1,9 +1,8 @@
 import 'server-only';
 
-import { Prisma } from '@prisma/client';
-import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
-import { authOptions } from '@/lib/auth';
+import { requireUser } from '@/lib/auth/require-user';
+import * as shared from '@/lib/http/json';
 
 export class PaperApiError extends Error {
   constructor(
@@ -15,45 +14,26 @@ export class PaperApiError extends Error {
   }
 }
 
+const fail = (message: string) => new PaperApiError(message);
+
 export async function requirePaperUser(): Promise<string | NextResponse> {
-  const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  return userId;
+  const auth = await requireUser();
+  return auth instanceof NextResponse ? auth : auth.userId;
 }
 
-export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error();
-    return body as Record<string, unknown>;
-  } catch {
-    throw new PaperApiError('A valid JSON object is required');
-  }
+export function readJsonObject(request: Request) {
+  return shared.readJsonObject(request, fail);
 }
 
-function jsonSafe(value: unknown): unknown {
-  if (value instanceof Prisma.Decimal) return value.toFixed();
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) return value.map(jsonSafe);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonSafe(item)]));
-  }
-  return value;
-}
-
-export function paperJson(data: unknown, init?: ResponseInit | number): NextResponse {
-  const responseInit = typeof init === 'number' ? { status: init } : init;
-  return NextResponse.json(jsonSafe(data), responseInit);
-}
+export const paperJson = shared.jsonResponse;
 
 export function paperError(error: unknown): NextResponse {
   if (error instanceof PaperApiError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-    return NextResponse.json({ error: 'That record already exists' }, { status: 409 });
-  }
+  const conflict = shared.uniqueConstraintResponse(error);
+  if (conflict) return conflict;
+
   const message = error instanceof Error ? error.message : 'Paper portfolio request failed';
   const validationMessage =
     /must|required|cannot|exceed|invalid|only|missing|below|above|position|risk|equity|cash|USD-listed/i.test(message);
@@ -63,31 +43,18 @@ export function paperError(error: unknown): NextResponse {
   );
 }
 
-export function optionalString(value: unknown, field: string, maxLength = 20_000): string | undefined {
-  if (value == null) return undefined;
-  if (typeof value !== 'string') throw new PaperApiError(`${field} must be a string`);
-  const result = value.trim();
-  if (result.length > maxLength) throw new PaperApiError(`${field} is too long`);
-  return result;
+export function optionalString(value: unknown, field: string, maxLength = 20_000) {
+  return shared.optionalString(value, field, fail, maxLength);
 }
 
-export function requiredString(value: unknown, field: string, maxLength = 20_000): string {
-  const result = optionalString(value, field, maxLength);
-  if (!result) throw new PaperApiError(`${field} is required`);
-  return result;
+export function requiredString(value: unknown, field: string, maxLength = 20_000) {
+  return shared.requiredString(value, field, fail, maxLength);
 }
 
-export function stringArray(value: unknown, field: string): string[] | undefined {
-  if (value == null) return undefined;
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    throw new PaperApiError(`${field} must be an array of strings`);
-  }
-  return [...new Set(value.map((item) => item.trim()).filter(Boolean))].slice(0, 50);
+export function stringArray(value: unknown, field: string) {
+  return shared.stringArray(value, field, fail);
 }
 
-export function optionalDate(value: unknown, field: string): Date | undefined {
-  if (value == null || value === '') return undefined;
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) throw new PaperApiError(`${field} must be a valid date`);
-  return date;
+export function optionalDate(value: unknown, field: string) {
+  return shared.optionalDate(value, field, fail);
 }

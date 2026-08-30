@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Activity, Eye, EyeOff, TrendingUp } from 'lucide-react';
 
-export function LoginForm() {
+export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -66,26 +67,28 @@ export function LoginForm() {
       </div>
 
       <div className="bg-card rounded-lg border border-border p-6" style={{ boxShadow: 'var(--shadow-lg)' }}>
-        <div className="flex mb-6 bg-secondary rounded-md p-0.5">
-          <button
-            type="button"
-            onClick={() => { setIsLogin(true); setError(''); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-              isLogin ? 'bg-[#00c853] text-white' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            onClick={() => { setIsLogin(false); setError(''); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-              !isLogin ? 'bg-[#00c853] text-white' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Sign Up
-          </button>
-        </div>
+        {signupEnabled && (
+          <div className="flex mb-6 bg-secondary rounded-md p-0.5">
+            <button
+              type="button"
+              onClick={() => { setIsLogin(true); setError(''); }}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+                isLogin ? 'bg-[#00c853] text-white' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setIsLogin(false); setError(''); }}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+                !isLogin ? 'bg-[#00c853] text-white' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {!isLogin && (
@@ -148,11 +151,34 @@ export function LoginForm() {
               </>
             )}
           </button>
+
+          {!isLogin && (
+            <p className="text-center text-[10px] text-muted-foreground">
+              Creating an account means you agree to the{' '}
+              <Link href="/terms" className="text-[#00c853] hover:underline">
+                Terms of Use
+              </Link>{' '}
+              and{' '}
+              <Link href="/privacy" className="text-[#00c853] hover:underline">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          )}
         </form>
       </div>
 
       <p className="text-center text-[10px] text-muted-foreground mt-4 opacity-60">
         Market data provided by Yahoo Finance. Not financial advice.
+      </p>
+      <p className="mt-2 text-center text-[10px] text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground">
+          Privacy Policy
+        </Link>
+        {' · '}
+        <Link href="/terms" className="hover:text-foreground">
+          Terms of Use
+        </Link>
       </p>
     </div>
   );

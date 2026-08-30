@@ -7,6 +7,9 @@ export interface PersonalTrade {
   side: PersonalSide;
   status: PersonalStatus;
   broker?: string | null;
+  source?: string | null;
+  webullClientOrderId?: string | null;
+  brokerOrderId?: string | null;
   thesis?: string | null;
   invalidation?: string | null;
   entryPrice: number;

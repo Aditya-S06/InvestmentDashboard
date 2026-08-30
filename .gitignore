@@ -17,6 +17,8 @@ __pycache__/
 !.env.example
 conf/*
 !conf/*.example
+# Leftover local Webull token tree (not covered by conf/*)
+project_oracle_v.5/
 
 # YouTube ingest cache / dedup (regenerated locally)
 data/youtube_processed.json
@@ -65,15 +67,13 @@ docker-data/
 # Stray output from legacy Abacus deploy paths
 home/
 
-# Platform / tooling artifacts
-.abacus.donotdelete
-.project_instructions.md
-.vercel
-.turbo
-.cursor/
+# Cursor local state; keep committed project rules
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 
 # Local-only docs (not for the public repo)
-AGENTS.md
+AGENTS.local.md
 STYLE_GUIDE.md
 styles.md
 INSIGHTS_AGENT_CONTEXT.md

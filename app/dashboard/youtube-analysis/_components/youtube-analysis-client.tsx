@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Settings, Youtube } from 'lucide-react';
-import { useDashboard } from '../../_components/dashboard-provider';
+import { useWatchlist } from '../../_components/watchlist-provider';
 import { DetailModal } from '../../_components/detail-modal';
 import { SettingsModal } from '../../_components/settings-modal';
 import { ChannelManager } from './channel-manager';
@@ -20,7 +20,7 @@ interface ChannelsState {
 }
 
 export function YoutubeAnalysisClient() {
-  const { watchlist, toggleWatchlist } = useDashboard();
+  const { watchlist, toggleWatchlist } = useWatchlist();
   const [items, setItems] = useState<VideoSummaryItem[]>([]);
   const [channels, setChannels] = useState<ChannelsState>({
     channels: [],
