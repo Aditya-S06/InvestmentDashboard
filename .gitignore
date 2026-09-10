@@ -64,6 +64,9 @@ Desktop.ini
 # Docker / local data
 docker-data/
 
+# Trading Desk run artifacts (local only)
+.data/desk/
+
 # Stray output from legacy Abacus deploy paths
 home/
 

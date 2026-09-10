@@ -199,6 +199,13 @@ Broker health: `python scripts/webull_client.py health` (loads `WEBULL_*` from e
 
 This application surfaces market **indicators and signals** for informational purposes only. It does not provide investment advice, predictions, or guarantees. Always verify data independently and consult a qualified professional before making financial decisions.
 
+## Third-party
+
+Trading Desk runs [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)
+(Apache License 2.0). The upstream license is in `TradingAgents/LICENSE`.
+Oracle is not affiliated with Tauric Research. Desk output is a research
+simulation, not an order and not investment advice.
+
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2026 Aditya Singh

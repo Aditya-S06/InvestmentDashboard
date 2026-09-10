@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ChevronDown,
@@ -45,6 +46,24 @@ interface PendingImage extends InsightImageAttachment {
 }
 
 export function InsightsClient() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin text-[#00c853]" />
+            Loading AI Insights...
+          </div>
+        </div>
+      }
+    >
+      <InsightsClientBody />
+    </Suspense>
+  );
+}
+
+function InsightsClientBody() {
+  const searchParams = useSearchParams();
   const { watchlist, toggleWatchlist } = useWatchlist();
   const [access, setAccess] = useState<AccessState>({
     loading: true,
@@ -114,7 +133,7 @@ export function InsightsClient() {
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, []);
 
-  const loadSession = async (sessionId: string) => {
+  const loadSession = useCallback(async (sessionId: string) => {
     const res = await fetch(`/api/insights/sessions/${sessionId}`, { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
@@ -127,7 +146,14 @@ export function InsightsClient() {
         metadata: message.metadata,
       })),
     );
-  };
+  }, []);
+
+  const sessionFromQuery = searchParams.get('session');
+
+  useEffect(() => {
+    if (!access.hasAccess || !sessionFromQuery) return;
+    void loadSession(sessionFromQuery);
+  }, [access.hasAccess, loadSession, sessionFromQuery]);
 
   const deleteSession = async (sessionId: string) => {
     await fetch(`/api/insights/sessions/${sessionId}`, { method: 'DELETE' });
@@ -339,6 +365,12 @@ export function InsightsClient() {
           </div>
 
           <div className="flex items-center gap-1">
+            <Link
+              href="/dashboard/desk"
+              className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              Trading Desk →
+            </Link>
             {access.hasAccess && access.isAdmin && (
               <button
                 type="button"

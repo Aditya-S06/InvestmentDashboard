@@ -31,6 +31,7 @@ model User {
   personalReviews  PersonalReview[]
   brokerOrders     BrokerOrder[]
   brokerAuditLogs  BrokerAuditLog[]
+  deskRuns         DeskRun[]
 }
 
 model Account {
@@ -448,4 +449,29 @@ model TradingSettings {
   killSwitch Boolean  @default(false)
   updatedAt  DateTime @updatedAt
   updatedBy  String?
+}
+
+/// Trading Desk run (wrapper around the local TradingAgents graph).
+/// status: queued | running | completed | failed | cancelled | review
+model DeskRun {
+  id           String    @id @default(cuid())
+  userId       String
+  tickers      String[]
+  activeTicker String?
+  asOf         String
+  depth        String
+  analysts     String[]
+  assetType    String    @default("stock")
+  checkpoint   Boolean   @default(false)
+  status       String
+  signal       String?
+  params       Json?
+  finalState   Json?
+  error        String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  finishedAt   DateTime?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
