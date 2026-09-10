@@ -75,17 +75,15 @@ home/
 # !.cursor/rules/
 # !.cursor/rules/**
 .cursorignore*
-# Local-only docs (not for the public repo)
-AGENTS.local.md
-STYLE_GUIDE.md
-styles.md
-INSIGHTS_AGENT_CONTEXT.md
-CODEBASE_CONTEXT.md
-WEBULL_INTEGRATION.md
-plan_insights_regime_engine.md
-plan_*.md
-TauricPlan.md
-FOUNDATION_PASS.md
+# Ignore all markdown files by default to prevent accidental commits of local notes/plans
+*.md
+**/*.md
+
+# Explicitly allow only README, AGENTS, and project instructions markdown files
+!README.md
+!AGENTS.md
+!.project_instructions.md
+!project_instructions.md
 # AI Insights harness (confidential agent instructions — keep local only)
 lib/insights/harness/system.md
 lib/insights/harness/output.md
