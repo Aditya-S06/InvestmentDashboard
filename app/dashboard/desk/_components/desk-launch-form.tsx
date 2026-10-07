@@ -7,6 +7,10 @@ import {
   DESK_ANALYSTS,
   DESK_ASSET_TYPES,
   DESK_DEPTHS,
+  deskResumeInput,
+  type DeskCheckpointListing,
+  type DeskCheckpointReference,
+  type DeskSavedCheckpoint,
   type CreateDeskRunInput,
   type DeskAnalyst,
   type DeskAssetType,
@@ -50,7 +54,8 @@ export function DeskLaunchForm() {
   const [analysts, setAnalysts] = useState<DeskAnalyst[]>([...DESK_ANALYSTS]);
   const [assetType, setAssetType] = useState<DeskAssetType>('stock');
   const [checkpoint, setCheckpoint] = useState(false);
-  const [resumable, setResumable] = useState<string[]>([]);
+  const [resumable, setResumable] = useState<DeskCheckpointListing[]>([]);
+  const [resume, setResume] = useState<DeskCheckpointReference>();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,13 +68,9 @@ export function DeskLaunchForm() {
     const query = new URLSearchParams({ tickers: tickers.join(',') });
     void fetch(`/api/desk/checkpoints?${query}`, { cache: 'no-store' })
       .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as { tickers?: unknown } | null;
-        if (cancelled || !res.ok) return;
-        const listed = data?.tickers;
-        const next = Array.isArray(listed)
-          ? listed.filter((item): item is string => typeof item === 'string')
-          : [];
-        setResumable(next);
+        const data = (await res.json().catch(() => null)) as { checkpoints?: DeskCheckpointListing[] } | null;
+        if (cancelled) return;        if (!res.ok) { setResumable([]); return; }
+        setResumable(data?.checkpoints ?? []);
       })
       .catch(() => {
         if (!cancelled) setResumable([]);
@@ -115,7 +116,8 @@ export function DeskLaunchForm() {
         setError(typeof data?.error === 'string' ? data.error : 'Could not clear checkpoint');
         return;
       }
-      setResumable((current) => current.filter((item) => item !== ticker));
+      setResume(undefined);
+      setResumable((current) => current.filter((item) => item.ticker !== ticker));
     } catch {
       setError('Could not clear checkpoint');
     }
@@ -146,6 +148,13 @@ export function DeskLaunchForm() {
     });
   };
 
+  const restoreCheckpoint = (saved: DeskSavedCheckpoint) => {
+    const input = deskResumeInput(saved);
+    setTickers(input.tickers); setDraft(''); setAsOf(input.asOf); setDepth(input.depth);
+    setAnalysts(input.analysts); setAssetType(input.assetType); setCheckpoint(true);
+    setResume(input.resume); setError(null);
+  };
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const pending = draft.trim().toUpperCase();
@@ -160,6 +169,7 @@ export function DeskLaunchForm() {
       analysts: assetType === 'crypto' ? analysts.filter((analyst) => analyst !== 'fundamentals') : analysts,
       assetType,
       checkpoint,
+      resume,
     };
     if (payload.tickers.length < 1 || payload.tickers.length > MAX_TICKERS) {
       setError('Add 1 to 3 tickers');
@@ -239,6 +249,7 @@ export function DeskLaunchForm() {
             ))}
             {tickers.length < MAX_TICKERS && (
               <input
+                aria-label="Tickers"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value.toUpperCase())}
                 onKeyDown={(event) => {
@@ -327,34 +338,31 @@ export function DeskLaunchForm() {
           <input
             type="checkbox"
             checked={checkpoint}
-            onChange={(event) => setCheckpoint(event.target.checked)}
+            onChange={(event) => { setCheckpoint(event.target.checked); setResume(undefined); }}
             className="accent-[#00c853]"
           />
           Checkpoint
         </label>
 
-        {resumable.length > 0 && (
+        {resumable.some(item => item.exists) && (
           <div className="space-y-1.5 rounded-md border border-border px-3 py-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Saved checkpoints</p>
-            {resumable.map((ticker) => (
-              <div key={ticker} className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-mono text-[#00c853]">{ticker}</span>
-                <button
-                  type="button"
-                  onClick={() => setCheckpoint(true)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  Resume
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void clearCheckpoint(ticker)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  Clear checkpoint
-                </button>
+            {resumable.filter(item => item.exists).map(item => (
+              <div key={item.ticker} className="space-y-1 text-xs">
+                <span className="font-mono text-[#00c853]">{item.ticker}</span>
+                {item.reason && <p className="text-muted-foreground">{item.reason}</p>}
+                {item.checkpoints.map(saved => (
+                  <div key={saved.threadId} className="flex flex-wrap items-center gap-2">
+                    <span>{saved.asOf} · {saved.assetType} · {saved.depth} · {saved.analysts.join(', ')}</span>
+                    <button type="button" disabled={submitting} onClick={() => restoreCheckpoint(saved)}
+                      className="text-muted-foreground hover:text-foreground">Resume</button>
+                  </div>
+                ))}
+                <button type="button" disabled={submitting} onClick={() => void clearCheckpoint(item.ticker)}
+                  className="text-muted-foreground hover:text-foreground">Clear checkpoint</button>
               </div>
             ))}
+            {resume && <p>Saved settings restored. Launch resumes this ticker; changed settings must match the saved checkpoint.</p>}
           </div>
         )}
       </div>

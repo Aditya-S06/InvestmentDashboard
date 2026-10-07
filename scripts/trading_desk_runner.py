@@ -30,6 +30,19 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from desk_process import atomic_json, redact as redact_process_secrets
+
+import dotenv
+
+# This application entry point accepts only its explicitly supplied environment.
+# TradingAgents loads .env and .env.enterprise at import. Block that before any
+# imports, including on python-dotenv 1.0/1.1 (which lack PYTHON_DOTENV_DISABLED).
+def _ignore_dotenv(*args: Any, **kwargs: Any) -> bool:
+    return False
+
+
+dotenv.load_dotenv = _ignore_dotenv
 
 # tradingagents lives in the Tauric clone at <repo>/TradingAgents (TauricPlan).
 # The desk-4 spawn sets PYTHONPATH to that directory; insert it here too so the
@@ -41,11 +54,28 @@ if str(_TRADINGAGENTS_DIR) not in sys.path:
 from langchain_core.callbacks import BaseCallbackHandler  # noqa: E402
 from tradingagents.agents.utils.rating import RATING_REVIEW, RATINGS_5_TIER  # noqa: E402
 from tradingagents.default_config import DEFAULT_CONFIG  # noqa: E402
-from tradingagents.graph.trading_graph import TradingAgentsGraph  # noqa: E402
+from tradingagents.graph.trading_graph import TradingAgentsGraph as _TradingAgentsGraph  # noqa: E402
+
+
+class TradingAgentsGraph(_TradingAgentsGraph):
+    """App-owned boundaries, installed before upstream compiles its workflow."""
+    def __init__(self, *args, **kwargs):
+        from desk_memory import DeskMemoryLog
+        super().__init__(*args, **kwargs)
+        self.memory_log = DeskMemoryLog(self.config)
+
+    def _create_tool_nodes(self):
+        from desk_tool_safety import safe_tool
+        nodes = super()._create_tool_nodes()
+        for node in nodes.values():
+            node.tools_by_name.update({name: safe_tool(tool) for name, tool in node.tools_by_name.items()})
+        return nodes
 
 # Real stdout, captured before main() points sys.stdout at stderr. Only JSONL
 # events are ever written here.
 _EVENT_STREAM = sys.stdout
+if hasattr(_EVENT_STREAM, "reconfigure"):
+    _EVENT_STREAM.reconfigure(encoding="utf-8", errors="strict", newline="\n")
 
 DEPTH_ROUNDS = {"fast": 1, "standard": 3, "deep": 5}
 
@@ -112,7 +142,7 @@ def redact_secrets(text: str) -> str:
     """Strip API keys and env dumps from logs / error strings."""
     if not text:
         return text
-    out = text
+    out = redact_process_secrets(text)
     for name in _SECRET_ENV_NAMES:
         value = os.environ.get(name) or ""
         if value:
@@ -379,14 +409,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     # Reserve real stdout for JSONL: debug pretty-print and any library chatter
-    # go to stderr. Replace unencodable characters so LLM unicode output can't
-    # crash on a cp1252 Windows console. Wrap stderr so API keys never land in logs.
+    # go to stderr. Both captured pipes use UTF-8 regardless of the inherited
+    # Windows code page. Wrap stderr so API keys never land in logs.
     if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr = _RedactingWriter(sys.stderr)
     sys.stdout = sys.stderr
 
@@ -423,8 +453,22 @@ def main(argv: list[str] | None = None) -> int:
             data_cache_dir,
         )
 
+        from desk_checkpoint import inspect_saved, remember, restore
+        from desk_supervisor import manifest_at
+        saved_settings = dict(ticker=ticker, asOf=args.as_of, depth=args.depth,
+                              analysts=analysts, assetType=args.asset_type)
+        manifest = manifest_at(results_dir)
+        resumable = inspect_saved(results_dir.parent, saved_settings) if args.checkpoint else None
+        reference = manifest.get('resume')
+        if reference or resumable:
+            config.update(restore(results_dir.parent, reference or resumable, saved_settings))
+        if args.checkpoint:
+            remember(results_dir.parent, saved_settings, config)
+
         handler = DeskEventHandler(ticker)
         graph = TradingAgentsGraph(selected_analysts=analysts, debug=True, config=config)
+        if args.checkpoint and not resumable:
+            graph.clear_checkpoint_on_success(ticker, args.as_of, args.asset_type)
         # propagate() calls get_graph_args() with no callbacks; wrap the bound
         # method so our handler rides along (same hook Tauric's CLI uses).
         original_get_graph_args = graph.propagator.get_graph_args
@@ -441,16 +485,25 @@ def main(argv: list[str] | None = None) -> int:
         out_path = Path(args.out).resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"signal": signal, "finalState": serializable_final_state(final_state)}
-        out_path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
+        atomic_json(out_path, json.loads(redact_secrets(json.dumps(payload, ensure_ascii=False, default=str))))
 
         emit({"event": "done", "ticker": ticker})
         return 0
     except Exception as exc:  # noqa: BLE001 — every failure must surface as an event
         traceback.print_exc(file=sys.stderr)
         emit({"event": "error", "message": redact_secrets(str(exc))})
+        return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    from desk_checkpoint import graph_use
+    try:
+        directory = Path(args.results_dir).absolute()
+        with graph_use(directory.parent, args.ticker.strip().upper(), directory):
+            return _main(argv)
+    except Exception:
+        emit({'event': 'error', 'message': 'Desk checkpoint ownership or state unavailable; refresh before retrying.'})
         return 1
 
 

@@ -79,7 +79,7 @@ export function DetailModal({ symbol, onClose, isWatchlisted, onToggleWatchlist 
   const isPositive = (ticker?.change ?? 0) >= 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm overflow-y-auto" onClick={onClose}>
       <div
         className="max-w-5xl mx-auto my-4 bg-card border border-border rounded-lg shadow-2xl"
         onClick={(e) => e.stopPropagation()}

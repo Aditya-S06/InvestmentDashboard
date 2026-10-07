@@ -1,6 +1,8 @@
 'use client';
 
-export function DeskMemoPane({ agent, text }: { agent: string | null; text: string }) {
+import { memo } from 'react';
+
+export const DeskMemoPane = memo(function DeskMemoPane({ agent, text }: { agent: string | null; text: string }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-card">
       <header className="border-b border-border px-3 py-2 text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -15,4 +17,4 @@ export function DeskMemoPane({ agent, text }: { agent: string | null; text: stri
       </div>
     </section>
   );
-}
+});

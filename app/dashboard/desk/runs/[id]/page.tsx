@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { DeskEventLog } from '../../_components/desk-event-log';
 import { DeskMemoPane } from '../../_components/desk-memo-pane';
 import { DeskReport } from '../../_components/desk-report';
-import { DeskRunTimeline, type DeskAgentStatus } from '../../_components/desk-run-timeline';
+import { DeskRunTimeline } from '../../_components/desk-run-timeline';
 import {
   DESK_ANALYSTS,
   formatDeskTickerHeader,
@@ -15,6 +15,11 @@ import {
   type DeskRunStatus,
   type DeskSignal,
 } from '@/lib/desk/types';
+
+import { connectDeskStream } from '@/lib/desk/stream-client';
+import { deskDisplayedProgress, emptyDeskLiveState, mergeDeskRunSnapshot, reduceDeskStream } from '@/lib/desk/stream-state';
+
+const MemoizedDeskReport = memo(DeskReport);
 
 type DeskRunPayload = {
   id: string;
@@ -33,6 +38,21 @@ type DeskRunPayload = {
   createdAt: string;
   finishedAt: string | null;
 };
+
+// Validate the response before replacing renderable state; never echo raw server errors.
+function isCancellationResponse(value: unknown, id: string): value is DeskRunPayload {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string');
+  const nullableString = (v: unknown) => v === null || typeof v === 'string';
+  return data.id === id && typeof data.status === 'string' && parseStatus(data.status) !== null
+    && !isLiveStatus(parseStatus(data.status)!)
+    && strings(data.tickers) && data.tickers.length > 0 && strings(data.analysts)
+    && nullableString(data.activeTicker) && (data.activeTicker === null || data.tickers.includes(data.activeTicker as string))
+    && ['asOf', 'depth', 'assetType', 'createdAt'].every(key => typeof data[key] === 'string')
+    && typeof data.checkpoint === 'boolean' && nullableString(data.signal) && nullableString(data.error)
+    && nullableString(data.finishedAt) && 'params' in data && 'finalState' in data;
+}
 
 function parseStatus(value: string): DeskRunStatus | null {
   switch (value) {
@@ -112,40 +132,16 @@ function formatElapsed(fromIso: string, untilIso: string | null, nowMs: number):
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function logLine(event: string, data: Record<string, unknown>): string {
-  switch (event) {
-    case 'desk_phase':
-      return `phase ${typeof data.phase === 'string' ? data.phase : ''}`;
-    case 'desk_agent':
-      return `agent ${typeof data.agent === 'string' ? data.agent : ''} ${typeof data.status === 'string' ? data.status : ''}`;
-    case 'desk_memo':
-      return `memo ${typeof data.agent === 'string' ? data.agent : ''}`;
-    case 'desk_debate':
-      return `debate r${typeof data.round === 'number' ? data.round : '?'} ${typeof data.side === 'string' ? data.side : ''}`;
-    case 'desk_decision':
-      return `decision ${typeof data.signal === 'string' ? data.signal : ''}`;
-    case 'desk_done':
-      return 'done';
-    case 'desk_error':
-      return `error ${typeof data.message === 'string' ? data.message : ''}`;
-    default:
-      return event;
-  }
-}
-
 export default function DeskRunPage() {
   const params = useParams<{ id: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const [run, setRun] = useState<DeskRunPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [phase, setPhase] = useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = useState<Record<string, DeskAgentStatus>>({});
-  const [debateRound, setDebateRound] = useState<number | null>(null);
-  const [debateSide, setDebateSide] = useState<string | null>(null);
-  const [memoAgent, setMemoAgent] = useState<string | null>(null);
-  const [memoText, setMemoText] = useState('');
-  const [log, setLog] = useState<string[]>([]);
+  const [live, setLive] = useState(emptyDeskLiveState);
+  const connectionRef = useRef<AbortController | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const cancelPendingRef = useRef(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const status = run ? parseStatus(run.status) : null;
@@ -153,55 +149,28 @@ export default function DeskRunPage() {
   useEffect(() => {
     if (!id) return;
     const ac = new AbortController();
-    let cancelled = false;
-
-    async function boot() {
-      try {
-        const res = await fetch(`/api/desk/runs/${id}`, { cache: 'no-store', signal: ac.signal });
-        const data = (await res.json().catch(() => ({}))) as DeskRunPayload & { error?: string };
-        if (cancelled) return;
-        if (!res.ok) {
-          setLoadError(typeof data?.error === 'string' ? data.error : 'Could not load run');
-          return;
-        }
-        setRun(data);
+    connectionRef.current = ac;
+    let tickers: string[] = [];
+    setRun(null);
+    setLoadError(null);
+    setCancelError(null);
+    setCancelling(false);
+    cancelPendingRef.current = false;
+    setLive(emptyDeskLiveState());
+    void connectDeskStream<DeskRunPayload>({
+      runId: id, signal: ac.signal,
+      onRun: data => {
+        if (ac.signal.aborted) return;
+        tickers = data.tickers;
+        setRun(current => mergeDeskRunSnapshot(current, data));
         setLoadError(null);
-      } catch (error) {
-        if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
-        setLoadError('Could not load run');
-        return;
-      }
-
-      try {
-        const streamRes = await fetch(`/api/desk/runs/${id}/stream`, { signal: ac.signal });
-        if (!streamRes.ok) return;
-        await readEventStream(streamRes, async (event, data) => {
-          if (cancelled) return;
-          const row = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
-          setLog((current) => [...current, logLine(event, row)]);
-          applySseEvent(event, row, {
-            setPhase,
-            setAgentStatus,
-            setDebateRound,
-            setDebateSide,
-            setMemoAgent,
-            setMemoText,
-            setRun,
-          });
-        });
-        if (cancelled) return;
-        const latest = await fetch(`/api/desk/runs/${id}`, { cache: 'no-store' });
-        const payload = (await latest.json().catch(() => null)) as DeskRunPayload | null;
-        if (payload && typeof payload.status === 'string') setRun(payload);
-      } catch (error) {
-        if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
-      }
-    }
-
-    void boot();
+      },
+      onEvent: event => { if (!ac.signal.aborted) setLive(current => reduceDeskStream(current, event, tickers)); },
+      onError: message => { if (!ac.signal.aborted) setLoadError(message); },
+    });
     return () => {
-      cancelled = true;
       ac.abort();
+      connectionRef.current = null;
     };
   }, [id]);
 
@@ -211,48 +180,32 @@ export default function DeskRunPage() {
     return () => clearInterval(timer);
   }, [status]);
 
-  useEffect(() => {
-    if (!id || !status || !isLiveStatus(status)) return;
-    const timer = setInterval(() => {
-      void fetch(`/api/desk/runs/${id}`, { cache: 'no-store' })
-        .then(async (res) => {
-          const payload = (await res.json().catch(() => null)) as DeskRunPayload | null;
-          if (payload && typeof payload.status === 'string') setRun(payload);
-        })
-        .catch(() => undefined);
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [id, status]);
-
-  const lastTickerRef = useRef<string | null>(null);
-  useEffect(() => {
-    const next = run?.activeTicker ?? null;
-    if (lastTickerRef.current && next && lastTickerRef.current !== next) {
-      setPhase(null);
-      setAgentStatus({});
-      setDebateRound(null);
-      setDebateSide(null);
-      setMemoAgent(null);
-      setMemoText('');
-    }
-    lastTickerRef.current = next;
-  }, [run?.activeTicker]);
-
   const cancelRun = async () => {
-    if (!id) return;
+    const signal = connectionRef.current?.signal;
+    if (!id || !signal || signal.aborted || cancelPendingRef.current) return;
+    cancelPendingRef.current = true;
     setCancelling(true);
+    setCancelError(null);
     try {
-      const res = await fetch(`/api/desk/runs/${id}`, { method: 'DELETE' });
-      const data = (await res.json().catch(() => null)) as DeskRunPayload | null;
-      if (data && typeof data.status === 'string') setRun(data);
+      const res = await fetch(`/api/desk/runs/${encodeURIComponent(id)}`, { method: 'DELETE', signal });
+      if (signal.aborted) return;
+      if (!res.ok) throw new Error('Cancellation request failed');
+      const data: unknown = await res.json();
+      if (signal.aborted) return;
+      if (!isCancellationResponse(data, id)) throw new Error('Invalid cancellation response');
+      setRun(current => mergeDeskRunSnapshot(current, data));
+    } catch {
+      if (!signal.aborted) setCancelError('Could not confirm cancellation. Check the run status and try Cancel again if it is still running.');
     } finally {
-      setCancelling(false);
+      if (!signal.aborted) { cancelPendingRef.current = false; setCancelling(false); }
     }
   };
 
-  const analysts = (run?.analysts ?? []).filter(isDeskAnalyst);
+  const analysts = useMemo(() => (run?.analysts ?? []).filter(isDeskAnalyst), [run?.analysts]);
   const signal = parseSignal(run?.signal ?? null);
   const canCancel = !!status && isLiveStatus(status);
+  const progress = run && status ? deskDisplayedProgress(run, live, status) : null;
+  const liveTicker = progress?.ticker;
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-10">
@@ -273,7 +226,7 @@ export default function DeskRunPage() {
               <div className="mt-1 font-mono text-xl font-semibold text-[#00c853]">
                 {formatDeskTickerHeader(
                   run.tickers ?? [],
-                  isLiveStatus(status) ? run.activeTicker : null,
+                  isLiveStatus(status) ? liveTicker : null,
                 )}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -296,20 +249,22 @@ export default function DeskRunPage() {
           </button>
         )}
       </header>
+      {cancelError && <p role="alert" className="text-sm text-[#ff1744]">{cancelError}</p>}
 
-      {run && status && (
+      {run && status && progress && (
         <>
           <DeskRunTimeline
             analysts={analysts}
-            phase={phase}
-            agentStatus={agentStatus}
-            debateRound={debateRound}
-            debateSide={debateSide}
-            runStatus={status}
+            phase={progress.tickerLive.phase}
+            agentStatus={progress.tickerLive.agentStatus}
+            debateRound={progress.tickerLive.debateRound}
+            debateSide={progress.tickerLive.debateSide}
+            runStatus={progress.runStatus}
           />
-          {status === 'completed' || status === 'review' ? (
-            <DeskReport
+          {!isLiveStatus(status) ? (
+            <MemoizedDeskReport
               runId={run.id}
+              activeTicker={run.activeTicker}
               tickers={run.tickers ?? []}
               asOf={run.asOf}
               depth={run.depth}
@@ -323,8 +278,8 @@ export default function DeskRunPage() {
             />
           ) : (
             <div className="grid min-h-0 gap-4 lg:grid-cols-2">
-              <DeskMemoPane agent={memoAgent} text={memoText} />
-              <DeskEventLog lines={log} />
+              <DeskMemoPane agent={progress.tickerLive.memoAgent} text={progress.tickerLive.memoText} />
+              <DeskEventLog lines={live.log} omitted={live.omitted} />
             </div>
           )}
           {run.error && <p className="text-sm text-[#ff1744]">{run.error}</p>}
@@ -334,105 +289,4 @@ export default function DeskRunPage() {
       <p className="text-xs text-muted-foreground">Simulated research desk. Not an order. Not advice.</p>
     </main>
   );
-}
-
-type SseSetters = {
-  setPhase: (value: string | null) => void;
-  setAgentStatus: (update: (current: Record<string, DeskAgentStatus>) => Record<string, DeskAgentStatus>) => void;
-  setDebateRound: (value: number | null) => void;
-  setDebateSide: (value: string | null) => void;
-  setMemoAgent: (value: string | null) => void;
-  setMemoText: (value: string) => void;
-  setRun: (update: (current: DeskRunPayload | null) => DeskRunPayload | null) => void;
-};
-
-function applySseEvent(event: string, data: Record<string, unknown>, setters: SseSetters) {
-  switch (event) {
-    case 'desk_phase':
-      if (typeof data.phase === 'string') setters.setPhase(data.phase);
-      if (typeof data.ticker === 'string') {
-        setters.setRun((current) => (current ? { ...current, activeTicker: data.ticker as string } : current));
-      }
-      return;
-    case 'desk_agent': {
-      const agent = typeof data.agent === 'string' ? data.agent : null;
-      const agentState = data.status === 'done' ? 'done' : data.status === 'start' ? 'running' : null;
-      if (agent && agentState) {
-        setters.setAgentStatus((current) => ({ ...current, [agent]: agentState }));
-      }
-      return;
-    }
-    case 'desk_memo':
-      setters.setMemoAgent(typeof data.agent === 'string' ? data.agent : null);
-      setters.setMemoText(typeof data.text === 'string' ? data.text : '');
-      return;
-    case 'desk_debate':
-      if (typeof data.round === 'number') setters.setDebateRound(data.round);
-      if (typeof data.side === 'string') {
-        setters.setDebateSide(data.side);
-        setters.setMemoAgent(data.side);
-      }
-      setters.setMemoText(typeof data.text === 'string' ? data.text : '');
-      return;
-    case 'desk_decision':
-      if (typeof data.signal === 'string') {
-        setters.setRun((current) => (current ? { ...current, signal: data.signal as string } : current));
-      }
-      return;
-    case 'desk_done':
-      return;
-    case 'desk_error':
-      setters.setRun((current) =>
-        current
-          ? {
-              ...current,
-              status: 'failed',
-              error: typeof data.message === 'string' ? data.message : current.error,
-            }
-          : current,
-      );
-      return;
-    default:
-      return;
-  }
-}
-
-async function readEventStream(response: Response, onEvent: (event: string, data: unknown) => Promise<void> | void) {
-  const reader = response.body?.getReader();
-  if (!reader) return;
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop() ?? '';
-
-    for (const part of parts) {
-      const parsed = parseSseEvent(part);
-      if (parsed) await onEvent(parsed.name, parsed.data);
-    }
-  }
-
-  if (buffer.trim()) {
-    const parsed = parseSseEvent(buffer);
-    if (parsed) await onEvent(parsed.name, parsed.data);
-  }
-}
-
-function parseSseEvent(raw: string): { name: string; data: unknown } | null {
-  const lines = raw.split(/\r?\n/);
-  const name = lines.find((line) => line.startsWith('event:'))?.replace(/^event:\s*/, '').trim();
-  const dataLines = lines.filter((line) => line.startsWith('data:')).map((line) => line.replace(/^data:\s*/, ''));
-  if (!name) return null;
-
-  try {
-    return { name, data: JSON.parse(dataLines.join('\n') || '{}') };
-  } catch {
-    return { name, data: {} };
-  }
 }

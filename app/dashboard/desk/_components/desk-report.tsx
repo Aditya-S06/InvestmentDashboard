@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Download, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { toast } from 'sonner';
@@ -9,7 +9,9 @@ import {
   DESK_REPORT_TABS,
   createInputFromDeskRun,
   parseDeskReport,
-  resolveDeskRating,
+  deskRunResults,
+  isAvailableDeskResult,
+  reportForDeskResult,
   type DeskReportTab,
 } from '@/lib/desk/report';
 import type { DeskAnalyst, DeskSignal } from '@/lib/desk/types';
@@ -23,7 +25,8 @@ type DeskReportProps = {
   analysts: DeskAnalyst[];
   assetType: string;
   checkpoint: boolean;
-  status: 'completed' | 'review';
+  status: string;
+  activeTicker?: string | null;
   signal: DeskSignal | null;
   params: unknown;
   finalState: unknown;
@@ -113,8 +116,8 @@ function TabPanel({
   }
 }
 
-async function downloadFile(runId: string, format: 'md' | 'zip') {
-  const res = await fetch(`/api/desk/runs/${runId}/download?format=${format}`);
+async function downloadFile(runId: string, format: 'md' | 'zip', ticker: string) {
+  const res = await fetch(`/api/desk/runs/${runId}/download?format=${format}&ticker=${encodeURIComponent(ticker)}`);
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? 'Download failed');
@@ -145,16 +148,23 @@ export function DeskReport({
   signal,
   params,
   finalState,
+  activeTicker,
 }: DeskReportProps) {
   const router = useRouter();
+  const tabsId = useId();
   const { watchlist, toggleWatchlist } = useWatchlist();
   const [tab, setTab] = useState<DeskReportTab>('overview');
   const [busy, setBusy] = useState<string | null>(null);
 
-  const fallbackTicker = (tickers[0] ?? '').toUpperCase();
-  const report = useMemo(() => parseDeskReport(finalState, fallbackTicker), [finalState, fallbackTicker]);
-  const rating = resolveDeskRating(signal, report, status);
-  const ticker = report.ticker || fallbackTicker;
+  const results = useMemo(() => deskRunResults({ tickers, status, signal, finalState, asOf, activeTicker }),
+    [tickers, status, signal, finalState, asOf, activeTicker]);
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const selected = results.find(result => result.ticker === selectedTicker)
+    ?? results.find(isAvailableDeskResult) ?? results[0];
+  const available = !!selected && isAvailableDeskResult(selected);
+  const ticker = selected?.ticker ?? '';
+  const { report, rating } = selected ? reportForDeskResult(selected, asOf)
+    : { report: parseDeskReport(null, ''), rating: null };
   const onWatchlist = watchlist.some((item) => item.ticker === ticker);
   const rerunInput = createInputFromDeskRun(params, {
     tickers,
@@ -166,7 +176,7 @@ export function DeskReport({
   });
 
   const addTicker = async () => {
-    if (!ticker || onWatchlist) return;
+    if (!available || !ticker || onWatchlist) return;
     setBusy('watchlist');
     try {
       await toggleWatchlist(ticker);
@@ -176,9 +186,10 @@ export function DeskReport({
   };
 
   const sendToInsights = async () => {
+    if (!available) return;
     setBusy('insights');
     try {
-      const res = await fetch(`/api/desk/runs/${runId}/insights`, { method: 'POST' });
+      const res = await fetch(`/api/desk/runs/${runId}/insights?ticker=${encodeURIComponent(ticker)}`, { method: 'POST' });
       const data = (await res.json().catch(() => null)) as { sessionId?: string; error?: string } | null;
       if (!res.ok || !data?.sessionId) {
         toast.error(data?.error ?? 'Could not send to Insights');
@@ -196,7 +207,7 @@ export function DeskReport({
   const download = async (format: 'md' | 'zip') => {
     setBusy(format);
     try {
-      await downloadFile(runId, format);
+      await downloadFile(runId, format, ticker);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Download failed');
     } finally {
@@ -234,7 +245,11 @@ export function DeskReport({
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold">Report</span>
-          {rating && (
+          <select aria-label="Report ticker" value={ticker} onChange={event => { setSelectedTicker(event.target.value); setTab('overview'); }}
+            disabled={busy !== null} className="rounded border border-border bg-background px-2 py-1 text-sm">
+            {results.map(result => <option key={result.ticker} value={result.ticker}>{result.ticker} · {result.status}</option>)}
+          </select>
+          {available && rating && (
             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${signalClass(rating)}`}>
               {rating}
             </span>
@@ -244,7 +259,7 @@ export function DeskReport({
           <button
             type="button"
             onClick={() => void addTicker()}
-            disabled={!ticker || onWatchlist || busy === 'watchlist'}
+            disabled={!available || !ticker || onWatchlist || busy !== null}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             {busy === 'watchlist' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Star className="h-3 w-3" />}
@@ -253,7 +268,7 @@ export function DeskReport({
           <button
             type="button"
             onClick={() => void sendToInsights()}
-            disabled={busy === 'insights'}
+            disabled={!available || busy !== null}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             {busy === 'insights' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
@@ -262,7 +277,7 @@ export function DeskReport({
           <button
             type="button"
             onClick={() => void download('md')}
-            disabled={busy === 'md'}
+            disabled={!available || busy !== null}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             {busy === 'md' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
@@ -271,11 +286,11 @@ export function DeskReport({
           <button
             type="button"
             onClick={() => void download('zip')}
-            disabled={busy === 'zip'}
+            disabled={!results.some(isAvailableDeskResult) || busy !== null}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             {busy === 'zip' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-            Zip
+            ZIP · all reports
           </button>
           <button
             type="button"
@@ -284,17 +299,32 @@ export function DeskReport({
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             {busy === 'rerun' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Re-run
+            Re-run all tickers
           </button>
         </div>
       </header>
 
-      <div className="flex flex-wrap gap-1 border-b border-border px-2">
-        {DESK_REPORT_TABS.map((item) => (
+      <div role="tablist" aria-label="Report sections" className="flex flex-wrap gap-1 border-b border-border px-2">
+        {DESK_REPORT_TABS.map((item, index) => (
           <button
             key={item.id}
             type="button"
+            role="tab"
+            id={`${tabsId}-${item.id}`}
+            aria-selected={tab === item.id}
+            aria-controls={`${tabsId}-panel`}
+            tabIndex={tab === item.id ? 0 : -1}
             onClick={() => setTab(item.id)}
+            onKeyDown={event => {
+              const last = DESK_REPORT_TABS.length - 1;
+              const next = event.key === 'ArrowRight' ? (index + 1) % (last + 1)
+                : event.key === 'ArrowLeft' ? (index + last) % (last + 1)
+                  : event.key === 'Home' ? 0 : event.key === 'End' ? last : null;
+              if (next === null) return;
+              event.preventDefault();
+              setTab(DESK_REPORT_TABS[next].id);
+              event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+            }}
             className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
               tab === item.id
                 ? 'border-[#00c853] text-foreground'
@@ -306,12 +336,12 @@ export function DeskReport({
         ))}
       </div>
 
-      <div className="p-4">
-        {tab === 'overview' ? (
+      <div role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}`} tabIndex={0} className="p-4">
+        {!available ? <p className="text-sm text-muted-foreground">{selected?.error || 'No completed report for this ticker.'}</p> : tab === 'overview' ? (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-lg font-semibold text-[#00c853]">{ticker || '—'}</span>
-              {rating && (
+              {available && rating && (
                 <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${signalClass(rating)}`}>
                   {rating}
                 </span>

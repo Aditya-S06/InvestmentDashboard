@@ -2,6 +2,9 @@ import {
   DESK_ANALYSTS,
   DESK_ASSET_TYPES,
   DESK_DEPTHS,
+  isDeskDate,
+  isDeskTicker,
+  type DeskTickerResult,
   type CreateDeskRunInput,
   type DeskAnalyst,
   type DeskAssetType,
@@ -145,7 +148,7 @@ export function parseDeskReport(finalState: unknown, fallbackTicker: string): De
     parseDeskSignalText(pickField(researchFields, ['recommendation', 'rating', 'action']));
 
   return {
-    ticker: asString(state.company_of_interest) || fallbackTicker,
+    ticker: fallbackTicker || asString(state.company_of_interest),
     tradeDate: asString(state.trade_date),
     rating,
     executiveSummary: pickField(pmFields, ['executive summary']),
@@ -180,9 +183,10 @@ export function resolveDeskRating(
   report: DeskParsedReport,
   status: 'completed' | 'review',
 ): DeskSignal | null {
+  if (status === 'review') return 'REVIEW';
   if (signal) return signal;
   if (report.rating) return report.rating;
-  return status === 'review' ? 'REVIEW' : null;
+  return 'REVIEW';
 }
 
 export function deskReportMarkdown(report: DeskParsedReport, rating: DeskSignal | null): string {
@@ -274,11 +278,112 @@ export function createInputFromDeskRun(
   const assetType = parseAsset(source.assetType) ?? parseAsset(run.assetType);
   const checkpoint = typeof source.checkpoint === 'boolean' ? source.checkpoint : run.checkpoint;
   if (!depth || !analysts || !assetType || unique.length < 1) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return null;
+  if (!isDeskDate(asOf) || unique.some((ticker) => !isDeskTicker(ticker))) return null;
   if (assetType === 'crypto') {
     const withoutFundamentals = analysts.filter((analyst) => analyst !== 'fundamentals');
     if (withoutFundamentals.length === 0) return null;
     return { tickers: unique, asOf, depth, analysts: withoutFundamentals, assetType, checkpoint };
   }
   return { tickers: unique, asOf, depth, analysts, assetType, checkpoint };
+}
+
+export type DeskResultRun = {
+  tickers: string[]; activeTicker?: string | null; status: string; signal: string | null;
+  finalState: unknown; asOf: string; error?: string | null;
+  createdAt?: string | Date; finishedAt?: string | Date | null;
+};
+
+/** Only research fields emitted by the Python adapter, never logs/config/messages. */
+export function curateDeskState(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const result: Record<string, unknown> = {};
+  for (const key of ['company_of_interest', 'trade_date', 'asset_type', 'market_report',
+    'sentiment_report', 'news_report', 'fundamentals_report', 'investment_plan',
+    'trader_investment_plan', 'trader_investment_decision', 'final_trade_decision']) {
+    if (typeof value[key] === 'string') result[key] = value[key];
+  }
+  for (const [key, fields] of Object.entries({
+    investment_debate_state: ['bull_history', 'bear_history', 'history', 'current_response', 'judge_decision', 'count'],
+    risk_debate_state: ['aggressive_history', 'conservative_history', 'neutral_history', 'history', 'latest_speaker', 'judge_decision', 'count'],
+  })) {
+    const source = value[key];
+    if (!isRecord(source)) continue;
+    result[key] = Object.fromEntries(fields.filter(field => typeof source[field] === 'string'
+      || (field === 'count' && typeof source[field] === 'number')).map(field => [field, source[field]]));
+  }
+  return result;
+}
+
+export function emptyDeskResults(tickers: string[]): DeskTickerResult[] {
+  return tickers.map(ticker => ({ ticker, status: 'queued', signal: null, finalState: null,
+    error: null, startedAt: null, finishedAt: null }));
+}
+
+export function hasDeskResults(value: unknown): boolean {
+  return isRecord(value) && isRecord(value.deskResults) && value.deskResults.version === 1
+    && Array.isArray(value.deskResults.results);
+}
+
+const iso = (value: string | Date | null | undefined) => value instanceof Date ? value.toISOString() : value ?? null;
+
+/** Ordered v1 results; legacy rows expose only the ticker their report actually belongs to. */
+export function deskRunResults(run: DeskResultRun): DeskTickerResult[] {
+  const results = emptyDeskResults(run.tickers);
+  if (hasDeskResults(run.finalState)) {
+    const stored = (run.finalState as { deskResults: { results: unknown[] } }).deskResults.results;
+    return results.map(empty => {
+      const row = stored.find(item => isRecord(item) && item.ticker === empty.ticker);
+      if (!isRecord(row)) return { ...empty, status: 'unavailable' };
+      const statuses = ['queued', 'running', 'completed', 'review', 'failed', 'cancelled', 'skipped', 'unavailable'];
+      const status = typeof row.status === 'string' && statuses.includes(row.status) ? row.status as DeskTickerResult['status'] : 'unavailable';
+      return { ...empty, status, signal: row.signal == null ? null : parseDeskSignalText(asString(row.signal)) ?? 'REVIEW',
+        finalState: curateDeskState(row.finalState), error: typeof row.error === 'string' ? row.error : null,
+        startedAt: typeof row.startedAt === 'string' ? row.startedAt : null,
+        finishedAt: typeof row.finishedAt === 'string' ? row.finishedAt : null };
+    });
+  }
+  const state = curateDeskState(run.finalState);
+  const named = asString(state?.company_of_interest).trim().toUpperCase();
+  const ticker = named || run.activeTicker || (run.tickers.length === 1 ? run.tickers[0] : null);
+  return results.map(empty => {
+    if (empty.ticker !== ticker || !state) return { ...empty, status: 'unavailable' };
+    const signal = parseDeskSignalText(run.signal) ?? 'REVIEW';
+    return { ...empty, status: signal === 'REVIEW' ? 'review' : 'completed', signal,
+      finalState: state, startedAt: iso(run.createdAt), finishedAt: iso(run.finishedAt) };
+  });
+}
+
+/** Retain latest successful report fields for old readers, with an explicit versioned extension. */
+export function packDeskResults(results: DeskTickerResult[]): Record<string, unknown> {
+  const latest = [...results].reverse().find(isAvailableDeskResult);
+  return { ...(latest?.finalState ?? {}), deskResults: { version: 1, results } };
+}
+
+export function isAvailableDeskResult(result: DeskTickerResult): boolean {
+  return isDeskTicker(result.ticker) && (result.status === 'completed' || result.status === 'review') && result.finalState !== null;
+}
+
+export function selectDeskResult(run: DeskResultRun, ticker?: string | null): DeskTickerResult | null {
+  const results = deskRunResults(run);
+  if (ticker != null) {
+    const normalized = ticker.trim().toUpperCase();
+    if (!isDeskTicker(normalized)) return null;
+    return results.find(item => item.ticker === normalized) ?? null;
+  }
+  return results.find(isAvailableDeskResult) ?? results[0] ?? null;
+}
+
+export function reportForDeskResult(result: DeskTickerResult, asOf: string) {
+  const report = parseDeskReport(result.finalState, result.ticker);
+  report.tradeDate = asOf;
+  const rating = result.status === 'review' ? 'REVIEW' : result.signal ?? 'REVIEW';
+  return { report, rating: rating as DeskSignal };
+}
+
+/** REVIEW continues sequencing. Mixed ratings are REVIEW; failure/cancel have no aggregate rating. */
+export function aggregateDeskResults(results: DeskTickerResult[]) {
+  const review = results.some(item => item.status === 'review');
+  const signals = new Set(results.map(item => item.signal));
+  return { status: review ? 'review' as const : 'completed' as const,
+    signal: review || signals.size !== 1 ? 'REVIEW' as const : results[0]?.signal ?? 'REVIEW' as const };
 }

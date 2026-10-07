@@ -1,15 +1,10 @@
-// Next.js cannot keep a minutes-long TradingAgents graph on the creating
-// request: `next dev` HMR kills in-process children, an SSE drop must not
-// abort the firm, and runPython/execFile impose a 30s timeout. Self-hosted
-// Node is not serverless, but POST still returns 201 immediately. Spawn
-// detached, capture stdout into {resultsDir}/events.jsonl, and let GET
-// /api/desk/runs/[id]/stream replay then tail that file. Serverless unsupported.
-// Sequential tickers: one TradingAgentsGraph child at a time per DeskRun.
-
+// Detached local Python supervision owns sequencing, deadlines and process containment.
+// Next only launches once and reconciles atomic snapshots; no graph timer or PID signalling.
 import 'server-only';
 
 import { spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import type { Prisma } from '@prisma/client';
 import {
@@ -17,35 +12,18 @@ import {
   deskDataRoot,
   deskMemoryLogPath,
   deskResultsDir,
-  deskTimeoutMessage,
-  deskWallMs,
 } from '@/lib/desk/config';
-import { redactDeskSecrets } from '@/lib/desk/redact';
-import { deskHasMoreTickers, parseDeskDepth, type DeskDepth, type DeskRunStatus, type DeskSignal } from '@/lib/desk/types';
+import { isDeskDate, isDeskTicker, parseDeskDepth, type DeskRunStatus, type DeskTickerResult } from '@/lib/desk/types';
 import { prisma } from '@/lib/prisma';
+import { DESK_RECONCILE_FRESH_MS } from './limits';
+import { runtimeEnv } from '@/lib/subprocess-env';
+import { aggregateDeskResults, curateDeskState, deskRunResults, emptyDeskResults, hasDeskResults, isAvailableDeskResult, packDeskResults, parseDeskSignalText, type DeskResultRun } from './report';
 
-const SCRIPT = path.join(process.cwd(), 'scripts', 'trading_desk_runner.py');
+const SCRIPT = path.join(process.cwd(), 'scripts', 'desk_supervisor.py');
 const TRADINGAGENTS_DIR = path.join(process.cwd(), 'TradingAgents');
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_DEEP_MODEL = 'deepseek/deepseek-v4-pro';
 const DEFAULT_QUICK_MODEL = 'google/gemini-3.5-flash';
-
-type DeskChildMeta = {
-  child: ChildProcess | null;
-  tickerIndex: number;
-  timedOut: boolean;
-  wallTimer?: ReturnType<typeof setTimeout>;
-  extraSecrets: string[];
-};
-
-const globalForDesk = globalThis as unknown as {
-  deskChildren?: Map<string, DeskChildMeta>;
-};
-
-function deskChildren(): Map<string, DeskChildMeta> {
-  if (!globalForDesk.deskChildren) globalForDesk.deskChildren = new Map();
-  return globalForDesk.deskChildren;
-}
 
 /** Same existsSync candidate loop as lib/python-runner.ts, pointed at TradingAgents/.venv. */
 function getDeskPythonExecutable(): string {
@@ -72,10 +50,6 @@ export function deskEventsPath(resultsDir: string): string {
 
 export function deskOutPath(resultsDir: string): string {
   return path.join(resultsDir, 'out.json');
-}
-
-export function deskPidPath(resultsDir: string): string {
-  return path.join(resultsDir, 'pid');
 }
 
 export function parseDeskRunStatus(value: string): DeskRunStatus | null {
@@ -130,26 +104,7 @@ export function jsonlToSseName(event: string): string | null {
   }
 }
 
-export function parseDeskJsonlLine(line: string): Record<string, unknown> | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function jsonlEventName(row: Record<string, unknown>): string | null {
-  return typeof row.event === 'string' ? row.event : null;
-}
-
-function isRunTerminalJsonl(row: Record<string, unknown>): boolean {
-  // Per-ticker `done` is not run-terminal: remaining tickers still append JSONL.
-  return jsonlEventName(row) === 'error';
-}
+export { followDeskJsonl, parseDeskJsonlLine } from './stream-file';
 
 export type StartDeskRunInput = {
   id: string;
@@ -161,389 +116,262 @@ export type StartDeskRunInput = {
   assetType: string;
   checkpoint: boolean;
   openRouterKey: string;
+  resume?: import('./types').DeskCheckpointReference;
 };
 
-export function isDeskPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    return code === 'EPERM';
-  }
-}
-
+/** No environments, credentials, models or executable overrides enter this manifest. */
 export async function startDeskRun(input: StartDeskRunInput): Promise<void> {
-  if (input.tickers.length < 1) throw new Error('At least one ticker is required');
-
-  const resultsDir = deskResultsDir(input.userId, input.id);
-  fs.mkdirSync(resultsDir, { recursive: true });
-  fs.mkdirSync(path.dirname(deskMemoryLogPath(input.userId)), { recursive: true });
-  fs.mkdirSync(deskCacheDir(input.userId), { recursive: true });
-  fs.writeFileSync(deskEventsPath(resultsDir), '');
-
-  await spawnTicker(input, 0);
-}
-
-async function spawnTicker(input: StartDeskRunInput, tickerIndex: number): Promise<void> {
-  const ticker = input.tickers[tickerIndex];
-  if (!ticker) throw new Error('At least one ticker is required');
-  const existing = deskChildren().get(input.id);
-  if (existing?.child) {
-    throw new Error('A TradingAgentsGraph process is already running for this Desk run');
-  }
-
-  const depth = parseDeskDepth(input.depth) ?? 'standard';
+  input = { ...input, tickers: [...new Set(input.tickers.map(ticker => ticker.trim().toUpperCase()))] };
+  if (input.tickers.length < 1 || input.tickers.length > 3 || input.tickers.some(ticker => !isDeskTicker(ticker))) throw new Error('Invalid tickers');
+  if (!isDeskDate(input.asOf) || !parseDeskDepth(input.depth)) throw new Error('Invalid Desk date/depth');
+  validateDeskArtifactPaths(input.userId, input.id, input.tickers);
+  const run = await prisma.deskRun.findFirst({ where: { id: input.id, userId: input.userId } });
+  if (!run || run.status !== 'queued') return;
   const python = getDeskPythonExecutable();
   const resultsDir = deskResultsDir(input.userId, input.id);
   const memoryLogPath = deskMemoryLogPath(input.userId);
   const cacheDir = deskCacheDir(input.userId);
-  const eventsPath = deskEventsPath(resultsDir);
-  const outPath = deskOutPath(resultsDir);
-  const stderrPath = path.join(resultsDir, 'stderr.log');
-
-  if (tickerIndex > 0 && fs.existsSync(outPath)) {
-    const previous = input.tickers[tickerIndex - 1];
-    if (previous) {
-      fs.copyFileSync(outPath, path.join(resultsDir, `out-${previous}.json`));
-    }
-    fs.unlinkSync(outPath);
+  fs.mkdirSync(resultsDir, { recursive: true });
+  fs.mkdirSync(cacheDir, { recursive: true });
+  // Exclusive permanent claim: a repeated launch must never reset state or replay.
+  if (fs.existsSync(path.join(resultsDir, 'manifest.json'))) return;
+  let claim: number;
+  try { claim = fs.openSync(path.join(resultsDir, 'launch'), 'wx'); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return;
+    throw error;
   }
-
-  const eventsFd = fs.openSync(eventsPath, 'a');
-  const stderrFd = fs.openSync(stderrPath, 'a');
-
+  fs.closeSync(claim);
+  const jobId = randomUUID().replace(/-/g, '');
+  const manifest = { version: 1, jobId, id: input.id, userId: input.userId,
+    tickers: input.tickers, asOf: input.asOf, depth: input.depth, analysts: input.analysts,
+    assetType: input.assetType, checkpoint: input.checkpoint, ...(input.resume ? { resume: input.resume } : {}), createdAt: new Date().toISOString() };
+  atomicDeskJson(path.join(resultsDir, 'state.json'), { ...manifest, revision: 0, status: 'queued',
+    activeTicker: null, deadline: null, error: null, finishedAt: null, results: emptyDeskResults(input.tickers) });
+  atomicDeskJson(path.join(resultsDir, 'manifest.json'), manifest);
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...runtimeEnv(),
     OPENROUTER_API_KEY: input.openRouterKey,
     OPENROUTER_BASE_URL: process.env.OPENROUTER_BASE_URL?.trim() || DEFAULT_OPENROUTER_BASE_URL,
     DESK_DEEP_MODEL: process.env.DESK_DEEP_MODEL?.trim() || DEFAULT_DEEP_MODEL,
     DESK_QUICK_MODEL: process.env.DESK_QUICK_MODEL?.trim() || DEFAULT_QUICK_MODEL,
-    DESK_DATA_ROOT: deskDataRoot(),
+    // DEFAULT_CONFIG settings that remain effective in this OpenRouter-only runner.
+    TRADINGAGENTS_OUTPUT_LANGUAGE: process.env.TRADINGAGENTS_OUTPUT_LANGUAGE,
+    TRADINGAGENTS_BENCHMARK_TICKER: process.env.TRADINGAGENTS_BENCHMARK_TICKER,
+    TRADINGAGENTS_TEMPERATURE: process.env.TRADINGAGENTS_TEMPERATURE,
+    TRADINGAGENTS_LLM_MAX_RETRIES: process.env.TRADINGAGENTS_LLM_MAX_RETRIES,
+    TRADINGAGENTS_MAX_TOKENS: process.env.TRADINGAGENTS_MAX_TOKENS,
+    // The default news analyst's macro-data tool uses FRED, not Alpha Vantage.
+    FRED_API_KEY: process.env.FRED_API_KEY,
     PYTHONPATH: TRADINGAGENTS_DIR,
     TRADINGAGENTS_RESULTS_DIR: resultsDir,
     TRADINGAGENTS_CACHE_DIR: cacheDir,
     TRADINGAGENTS_MEMORY_LOG_PATH: memoryLogPath,
     TRADINGAGENTS_CHECKPOINT_ENABLED: input.checkpoint ? 'true' : 'false',
   };
-
-  const args = [
-    SCRIPT,
-    '--ticker',
-    ticker,
-    '--as-of',
-    input.asOf,
-    '--depth',
-    input.depth,
-    '--analysts',
-    input.analysts.join(','),
-    '--asset-type',
-    input.assetType,
-    '--checkpoint',
-    input.checkpoint ? 'true' : 'false',
-    '--out',
-    outPath,
-    '--results-dir',
-    resultsDir,
-    '--memory-log-path',
-    memoryLogPath,
-    '--data-cache-dir',
-    cacheDir,
-  ];
-
   let child: ChildProcess;
   try {
-    child = spawn(python, args, {
-      cwd: process.cwd(),
-      env,
-      detached: true,
-      windowsHide: true,
-      stdio: ['ignore', eventsFd, stderrFd],
+    child = spawn(python, [SCRIPT, 'run', resultsDir], {
+      cwd: process.cwd(), env, detached: true, windowsHide: true, stdio: 'ignore',
     });
+    // Never retain a key in an exit listener or an unhandled async callback.
+    child.on('error', () => {});
     await waitForSpawn(child);
-  } catch (error) {
-    closeFd(eventsFd);
-    closeFd(stderrFd);
-    throw redactError(error, [input.openRouterKey]);
+    child.unref();
+  } catch {
+    throw new Error('Desk supervisor failed to start');
   }
-  closeFd(eventsFd);
-  closeFd(stderrFd);
+}
 
-  if (child.pid == null) {
-    throw new Error('Desk runner spawned without a pid');
-  }
+function atomicDeskJson(file: string, value: unknown) {
+  const temp = `${file}.${randomUUID()}.tmp`;
+  try {
+    const fd = fs.openSync(temp, 'wx');
+    try { fs.writeFileSync(fd, JSON.stringify(value)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(temp, file);
+  } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
+}
 
-  fs.writeFileSync(deskPidPath(resultsDir), String(child.pid), 'utf8');
+export class DeskCheckpointConflict extends Error {
+  constructor(message: string, readonly status: 404 | 409 = 409) { super(message); }
+}
+export type DeskCheckpointControl = <T = unknown>(request: Record<string, unknown>) => Promise<T>;
 
-  const extraSecrets = [input.openRouterKey];
-  const meta: DeskChildMeta = {
-    child,
-    tickerIndex,
-    timedOut: false,
-    extraSecrets,
+/** Keyless OS lease spans DB checks/insertion and durable launch publication.
+ * No PID-based ownership or time-expiring locks. A broken launch lease fails closed.
+ */
+export async function withDeskCheckpointControl<T>(userId: string, work: (control: DeskCheckpointControl) => Promise<T>): Promise<T> {
+  validateDeskArtifactPaths(userId);
+  const userDir = path.dirname(deskCacheDir(userId));
+  fs.mkdirSync(userDir, { recursive: true });
+  const child = spawn(getDeskPythonExecutable(), [path.join(process.cwd(), 'scripts', 'desk_checkpoint.py'), userDir], {
+    cwd: process.cwd(), env: runtimeEnv(), windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  let pending: { resolve: (value: any) => void; reject: (error: Error) => void } | undefined;
+  let buffer = '';
+  let failed: Error | undefined;
+  const fail = () => {
+    failed = new DeskCheckpointConflict('Checkpoint coordination unavailable or busy; retry.');
+    pending?.reject(failed); pending = undefined;
   };
-  const wallMs = deskWallMs(depth);
-  meta.wallTimer = setTimeout(() => {
-    void onWallTimeout(input, tickerIndex, ticker, depth, wallMs);
-  }, wallMs);
-  deskChildren().set(input.id, meta);
-
-  await prisma.deskRun.update({
-    where: { id: input.id },
-    data: { status: 'running', activeTicker: ticker },
-  });
-
-  child.on('exit', () => {
-    void onTickerExit(input, tickerIndex);
-  });
-  child.unref();
-}
-
-async function onWallTimeout(
-  input: StartDeskRunInput,
-  tickerIndex: number,
-  ticker: string,
-  depth: DeskDepth,
-  wallMs: number,
-): Promise<void> {
-  const meta = deskChildren().get(input.id);
-  if (!meta || meta.tickerIndex !== tickerIndex || meta.timedOut) return;
-  meta.timedOut = true;
-  if (meta.wallTimer) clearTimeout(meta.wallTimer);
-
-  const message = deskTimeoutMessage({
-    depth,
-    ticker,
-    wallMs,
-    checkpoint: input.checkpoint,
-  });
-  await prisma.deskRun.updateMany({
-    where: { id: input.id, userId: input.userId, status: { in: ['queued', 'running'] } },
-    data: { status: 'failed', error: message, finishedAt: new Date() },
-  });
-
-  meta.child?.kill();
-  killPidFile(deskResultsDir(input.userId, input.id));
-}
-
-async function onTickerExit(input: StartDeskRunInput, tickerIndex: number): Promise<void> {
-  const meta = deskChildren().get(input.id);
-  if (meta?.tickerIndex === tickerIndex) {
-    if (meta.wallTimer) clearTimeout(meta.wallTimer);
-    meta.child = null;
-    // Keep the map entry so the pid reaper cannot treat ticker N's out.json as
-    // run completion while we are about to spawn ticker N+1.
-  }
-  if (meta?.timedOut) {
-    deskChildren().delete(input.id);
-    return;
-  }
-
-  const run = await prisma.deskRun.findFirst({ where: { id: input.id, userId: input.userId } });
-  if (!run) {
-    deskChildren().delete(input.id);
-    return;
-  }
-  const status = parseDeskRunStatus(run.status);
-  if (!status || isTerminalDeskStatus(status)) {
-    deskChildren().delete(input.id);
-    return;
-  }
-
-  const resultsDir = deskResultsDir(input.userId, input.id);
-  const last = lastJsonlEvents(deskEventsPath(resultsDir), meta?.extraSecrets ?? [input.openRouterKey]);
-  const out = readOutFile(deskOutPath(resultsDir));
-
-  if (last.errorMessage || !out) {
-    deskChildren().delete(input.id);
-    await finalizeDeskRun(input.id, input.userId, meta?.extraSecrets ?? [input.openRouterKey]);
-    return;
-  }
-
-  if (tickerIndex + 1 < input.tickers.length) {
-    try {
-      await spawnTicker(input, tickerIndex + 1);
-    } catch (error) {
-      deskChildren().delete(input.id);
-      const message = redactDeskSecrets(
-        error instanceof Error ? error.message : 'Desk runner failed to start next ticker',
-        [input.openRouterKey],
-      );
-      await prisma.deskRun.updateMany({
-        where: { id: input.id, userId: input.userId, status: { in: ['queued', 'running'] } },
-        data: { status: 'failed', error: message, finishedAt: new Date() },
-      });
+  child.once('error', fail);
+  child.once('exit', fail);
+  child.stdin?.on('error', fail);
+  child.stdout?.on('data', data => {
+    buffer += data.toString('utf8');
+    if (buffer.length > 2 * 1024 * 1024) { fail(); child.kill(); return; }
+    let newline: number;
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+      try {
+        const value = JSON.parse(line);
+        if (value.error) pending?.reject(new DeskCheckpointConflict(value.error, value.status === 404 ? 404 : 409));
+        else pending?.resolve(value);
+        pending = undefined;
+      } catch { fail(); }
     }
+  });
+  const receive = () => new Promise<any>((resolve, reject) => {
+    if (failed) reject(failed); else pending = { resolve, reject };
+  });
+  const request: DeskCheckpointControl = async command => {
+    const response = receive();
+    if (!failed) child.stdin?.write(`${JSON.stringify(command)}\n`);
+    return (await response).result;
+  };
+  // Helper startup/imports may take several seconds on cold Windows storage.
+  const timer = setTimeout(() => { fail(); child.kill(); }, 60_000);
+  try {
+    await receive();
+    const result = await work(request);
+    await request({ command: 'release' });
+    return result;
+  } finally {
+    clearTimeout(timer);
+    child.stdin?.end();
+  }
+}
+
+type DurableSnapshot = {
+  version: number; jobId: string; id: string; userId: string; revision: number;
+  status: DeskRunStatus; activeTicker: string | null; error: string | null;
+  finishedAt: string | null; results: DeskTickerResult[];
+};
+
+/** A short keyless helper checks OS ownership locks, never a persisted PID. */
+async function deskControl(resultsDir: string, command: 'snapshot' | 'cancel'): Promise<DurableSnapshot | null> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(getDeskPythonExecutable(), [SCRIPT, command, resultsDir], {
+      cwd: process.cwd(), env: runtimeEnv(), windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let output = '';
+    const timer = setTimeout(() => { child.kill(); reject(new Error('Desk supervision control timed out; retry')); }, 10_000);
+    child.stdout?.on('data', data => {
+      output += data.toString('utf8');
+      if (output.length > 32 * 1024 * 1024) { child.kill(); }
+    });
+    child.once('error', () => { clearTimeout(timer); reject(new Error('Desk supervision control unavailable')); });
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (code !== 0) { reject(new Error('Desk supervision control unavailable; retry')); return; }
+      try { resolve(JSON.parse(output)); } catch { reject(new Error('Invalid Desk supervision response')); }
+    });
+  });
+}
+
+async function applySnapshot(runId: string, userId: string, snapshot: DurableSnapshot | null) {
+  if (!snapshot) {
+    await finishDeskRun(runId, userId, 'failed', 'Desk supervision state missing or corrupt; interrupted without automatic replay. Re-run with fresh authentication.');
     return;
   }
-
-  deskChildren().delete(input.id);
-  await finalizeDeskRun(input.id, input.userId, meta?.extraSecrets ?? [input.openRouterKey]);
+  await updateDeskResults(runId, userId, (run, previous) => {
+    if (run.status !== 'queued' && run.status !== 'running') return null;
+    if (snapshot.version !== 1 || snapshot.id !== runId || snapshot.userId !== userId
+      || !/^[a-f0-9]{32}$/.test(snapshot.jobId) || !Number.isSafeInteger(snapshot.revision)
+      || !parseDeskRunStatus(snapshot.status) || snapshot.results.length !== run.tickers.length
+      || snapshot.results.some((r, i) => r.ticker !== run.tickers[i])) throw new Error('Invalid scoped Desk snapshot');
+    const stored = run.finalState as { deskLifecycle?: { jobId: string; revision: number } } | null;
+    const cursor = stored?.deskLifecycle;
+    if (cursor && cursor.jobId !== snapshot.jobId) throw new Error('Desk job identity changed');
+    // Recovery after storage corruption/clock rollback may have a lower cursor.
+    // A terminal state is irreversible; preserve it even then. Active snapshots
+    // still cannot regress, and the DB terminal guard makes retries idempotent.
+    if (cursor && cursor.revision >= snapshot.revision && !isTerminalDeskStatus(snapshot.status)) return null;
+    // A corrupt state recovery never removes already reconciled completed reports.
+    const results = snapshot.results.map((row, index) => isAvailableDeskResult(previous[index]) ? previous[index] : {
+      ...row, finalState: curateDeskState(row.finalState),
+    });
+    const terminal = isTerminalDeskStatus(snapshot.status);
+    if ((snapshot.status === 'completed' || snapshot.status === 'review') && !results.every(isAvailableDeskResult)) {
+      throw new Error('Incomplete Desk completion snapshot');
+    }
+    const aggregate = snapshot.status === 'completed' || snapshot.status === 'review' ? aggregateDeskResults(results) : null;
+    return { status: aggregate?.status ?? snapshot.status, signal: aggregate?.signal ?? null,
+      activeTicker: snapshot.activeTicker, error: snapshot.error,
+      finishedAt: terminal && snapshot.finishedAt ? new Date(snapshot.finishedAt) : null,
+      finalState: { ...packDeskResults(results), deskLifecycle: { jobId: snapshot.jobId, revision: snapshot.revision } } as Prisma.InputJsonValue };
+  });
 }
 
 export async function cancelDeskRun(runId: string, userId: string) {
-  const run = await prisma.deskRun.findFirst({ where: { id: runId, userId } });
-  if (!run) return null;
-
-  const status = parseDeskRunStatus(run.status);
-  if (status && isTerminalDeskStatus(status)) return run;
-
-  const resultsDir = deskResultsDir(userId, runId);
-  await prisma.deskRun.updateMany({
-    where: { id: runId, userId, status: { in: ['queued', 'running'] } },
-    data: { status: 'cancelled', finishedAt: new Date() },
-  });
-
-  const meta = deskChildren().get(runId);
-  if (meta) {
-    if (meta.wallTimer) clearTimeout(meta.wallTimer);
-    meta.child?.kill();
-    deskChildren().delete(runId);
+  const key = reconciliationKey(runId, userId);
+  reconciliations.delete(key);
+  try {
+    const run = await prisma.deskRun.findFirst({ where: { id: runId, userId } });
+    if (!run) return null;
+    if (run.status !== 'queued' && run.status !== 'running') return run;
+    validateDeskArtifactPaths(userId, runId);
+    const directory = deskResultsDir(userId, runId);
+    fs.mkdirSync(directory, { recursive: true });
+    // The helper takes the operation lock even before manifest publication,
+    // linearizing pre-launch cancellation with the supervisor's first spawn.
+    const snapshot = await deskControl(directory, 'cancel');
+    if (snapshot) await applySnapshot(runId, userId, snapshot);
+    else await finishDeskRun(runId, userId, 'cancelled',
+      'Cancellation recorded; no valid supervisor snapshot was available to confirm process shutdown. Legacy PID files were not signalled.');
+    return prisma.deskRun.findFirst({ where: { id: runId, userId } });
+  } finally {
+    // A pre-cancel reader cannot republish freshness after cancellation or failure.
+    reconciliations.delete(key);
   }
-  killPidFile(resultsDir);
-
-  return prisma.deskRun.findFirst({ where: { id: runId, userId } });
 }
 
-export async function finalizeDeskRun(
-  runId: string,
-  userId: string,
-  extraSecrets: string[] = [],
-): Promise<void> {
-  const run = await prisma.deskRun.findFirst({ where: { id: runId, userId } });
-  if (!run) return;
-  const status = parseDeskRunStatus(run.status);
-  if (!status || isTerminalDeskStatus(status)) return;
+type Reconciliation = { started: number; pending: boolean; promise: Promise<void> };
+// Only scoped keys, timestamps and void promises; no rows, snapshots or credentials.
+const reconciliations = new Map<string, Reconciliation>();
+const reconciliationKey = (runId: string, userId: string) => JSON.stringify([deskDataRoot(), userId, runId]);
 
-  const resultsDir = deskResultsDir(userId, runId);
-  const out = readOutFile(deskOutPath(resultsDir));
-  const last = lastJsonlEvents(deskEventsPath(resultsDir), extraSecrets);
-
-  if (out && !last.errorMessage) {
-    const signal = parseDeskSignal(out.signal);
-    await prisma.deskRun.updateMany({
-      where: { id: runId, userId, status: { in: ['queued', 'running'] } },
-      data: {
-        status: signal === 'REVIEW' ? 'review' : 'completed',
-        signal: signal ?? out.signal,
-        ...(out.finalState !== undefined
-          ? { finalState: out.finalState as Prisma.InputJsonValue }
-          : {}),
-        finishedAt: new Date(),
-      },
-    });
-    return;
+/** Reconciliation cannot advance tickers or manufacture success from raw out.json. */
+export function finalizeDeskRun(runId: string, userId: string, _extraSecrets: string[] = []): Promise<void> {
+  const key = reconciliationKey(runId, userId);
+  const now = performance.now();
+  const prior = reconciliations.get(key);
+  if (prior && (prior.pending || now - prior.started < DESK_RECONCILE_FRESH_MS)) return prior.promise;
+  // Bound retained completed entries; in-flight work is never evicted/duplicated.
+  for (const [id, entry] of reconciliations) {
+    if (!entry.pending && (now - entry.started >= DESK_RECONCILE_FRESH_MS || reconciliations.size >= 512)) reconciliations.delete(id);
   }
-
-  const errorMessage = redactDeskSecrets(
-    last.errorMessage || 'Desk runner exited without writing out.json',
-    extraSecrets,
-  );
-  await prisma.deskRun.updateMany({
-    where: { id: runId, userId, status: { in: ['queued', 'running'] } },
-    data: { status: 'failed', error: errorMessage, finishedAt: new Date() },
+  const entry: Reconciliation = { started: now, pending: true, promise: Promise.resolve() };
+  entry.promise = reconcileDeskRun(runId, userId).then(() => { entry.pending = false; }, error => {
+    if (reconciliations.get(key) === entry) reconciliations.delete(key);
+    throw error;
   });
+  reconciliations.set(key, entry);
+  return entry.promise;
 }
 
-/** If Node restarted and the pid file's process is gone, flip stuck running → failed (or complete from out.json). */
+async function reconcileDeskRun(runId: string, userId: string): Promise<void> {
+  const run = await prisma.deskRun.findFirst({ where: { id: runId, userId } });
+  if (!run || (run.status !== 'queued' && run.status !== 'running')) return;
+  validateDeskArtifactPaths(userId, runId);
+  const directory = deskResultsDir(userId, runId);
+  if (!fs.existsSync(path.join(directory, 'manifest.json')) && run.status === 'queued'
+    && Date.now() - run.createdAt.getTime() < 15_000) return;
+  await applySnapshot(runId, userId, await deskControl(directory, 'snapshot'));
+}
+
 export async function reapOrphanDeskRuns(userId: string): Promise<void> {
-  const stuck = await prisma.deskRun.findMany({
-    where: { userId, status: { in: ['queued', 'running'] } },
-    select: {
-      id: true,
-      userId: true,
-      status: true,
-      createdAt: true,
-      tickers: true,
-      activeTicker: true,
-    },
-  });
-
-  for (const run of stuck) {
-    if (deskChildren().has(run.id)) continue;
-    if (run.status === 'queued' && Date.now() - run.createdAt.getTime() < 15_000) continue;
-
-    const resultsDir = deskResultsDir(run.userId, run.id);
-    const pid = readPidFile(resultsDir);
-    if (pid != null && isDeskPidAlive(pid)) continue;
-
-    if (deskHasMoreTickers(run.tickers, run.activeTicker)) {
-      await prisma.deskRun.updateMany({
-        where: { id: run.id, userId: run.userId, status: { in: ['queued', 'running'] } },
-        data: {
-          status: 'failed',
-          error: 'Desk runner process is gone after a server restart.',
-          finishedAt: new Date(),
-        },
-      });
-      continue;
-    }
-
-    await finalizeDeskRun(run.id, run.userId);
-    const after = await prisma.deskRun.findFirst({
-      where: { id: run.id, userId: run.userId },
-      select: { status: true },
-    });
-    const afterStatus = after ? parseDeskRunStatus(after.status) : null;
-    if (afterStatus && isTerminalDeskStatus(afterStatus)) continue;
-
-    await prisma.deskRun.updateMany({
-      where: { id: run.id, userId: run.userId, status: { in: ['queued', 'running'] } },
-      data: {
-        status: 'failed',
-        error: 'Desk runner process is gone after a server restart.',
-        finishedAt: new Date(),
-      },
-    });
-  }
-}
-
-export async function* followDeskJsonl(
-  eventsPath: string,
-  opts: { signal?: AbortSignal; isFinished: () => Promise<boolean> },
-): AsyncGenerator<Record<string, unknown>> {
-  let offset = 0;
-  let pending = '';
-  let terminal = false;
-
-  const drain = (): Record<string, unknown>[] => {
-    if (!fs.existsSync(eventsPath)) return [];
-    const stat = fs.statSync(eventsPath);
-    if (stat.size <= offset) return [];
-    const length = stat.size - offset;
-    const buf = Buffer.alloc(length);
-    const fd = fs.openSync(eventsPath, 'r');
-    fs.readSync(fd, buf, 0, length, offset);
-    fs.closeSync(fd);
-    offset = stat.size;
-    pending += buf.toString('utf8');
-    const parts = pending.split(/\r?\n/);
-    pending = parts.pop() ?? '';
-    const rows: Record<string, unknown>[] = [];
-    for (const line of parts) {
-      const parsed = parseDeskJsonlLine(line);
-      if (!parsed) continue;
-      rows.push(parsed);
-      if (isRunTerminalJsonl(parsed)) terminal = true;
-    }
-    return rows;
-  };
-
-  while (!opts.signal?.aborted && !terminal) {
-    for (const row of drain()) yield row;
-    if (terminal || opts.signal?.aborted) return;
-    if (await opts.isFinished()) {
-      for (const row of drain()) yield row;
-      return;
-    }
-    await sleep(400, opts.signal);
-  }
-}
-
-function redactError(error: unknown, extraSecrets: string[]): Error {
-  const message = redactDeskSecrets(error instanceof Error ? error.message : String(error), extraSecrets);
-  return new Error(message);
+  const runs = await prisma.deskRun.findMany({ where: { userId, status: { in: ['queued', 'running'] } }, select: { id: true } });
+  for (const run of runs) await finalizeDeskRun(run.id, userId);
 }
 
 function waitForSpawn(child: ChildProcess): Promise<void> {
@@ -561,35 +389,10 @@ function waitForSpawn(child: ChildProcess): Promise<void> {
   });
 }
 
-function closeFd(fd: number) {
-  try {
-    fs.closeSync(fd);
-  } catch {
-    // already closed
-  }
-}
-
-function killPidFile(resultsDir: string) {
-  const pid = readPidFile(resultsDir);
-  if (pid == null) return;
-  try {
-    process.kill(pid, 'SIGTERM');
-  } catch {
-    // already gone
-  }
-}
-
-function readPidFile(resultsDir: string): number | null {
-  const pidPath = deskPidPath(resultsDir);
-  if (!fs.existsSync(pidPath)) return null;
-  const pid = Number.parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
-  if (!Number.isInteger(pid) || pid <= 0) return null;
-  return pid;
-}
-
 function readOutFile(outPath: string): { signal?: string; finalState?: unknown } | null {
   if (!fs.existsSync(outPath)) return null;
   try {
+    assertNoSymlinks(outPath);
     const parsed: unknown = JSON.parse(fs.readFileSync(outPath, 'utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     const row = parsed as { signal?: unknown; finalState?: unknown };
@@ -602,48 +405,89 @@ function readOutFile(outPath: string): { signal?: string; finalState?: unknown }
   }
 }
 
-function lastJsonlEvents(eventsPath: string, extraSecrets: string[]): { errorMessage: string | null } {
-  if (!fs.existsSync(eventsPath)) return { errorMessage: null };
-  const text = fs.readFileSync(eventsPath, 'utf8');
-  let errorMessage: string | null = null;
-  for (const line of text.split(/\r?\n/)) {
-    const parsed = parseDeskJsonlLine(line);
-    if (!parsed) continue;
-    if (jsonlEventName(parsed) === 'error' && typeof parsed.message === 'string') {
-      errorMessage = redactDeskSecrets(parsed.message, extraSecrets);
-    }
+/** Reject escaping IDs and symlink/junction components before filesystem side effects. */
+export function validateDeskArtifactPaths(userId: string, runId = 'validation', tickers: string[] = []): void {
+  for (const id of [userId, runId]) {
+    if (!/^[A-Za-z0-9_-]+$/.test(id) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(id)) throw new Error('Invalid artifact owner/run');
   }
-  return { errorMessage };
-}
-
-function parseDeskSignal(value: string | undefined): DeskSignal | null {
-  switch (value) {
-    case 'Buy':
-    case 'Overweight':
-    case 'Hold':
-    case 'Underweight':
-    case 'Sell':
-    case 'REVIEW':
-      return value;
-    default:
-      return null;
+  const root = path.resolve(deskDataRoot());
+  if (tickers.some(ticker => !isDeskTicker(ticker))) throw new Error('Invalid artifact ticker');
+  for (const target of [deskResultsDir(userId, runId), deskMemoryLogPath(userId), deskCacheDir(userId),
+    ...tickers.flatMap(ticker => [path.join(deskResultsDir(userId, runId), `out-${ticker}.json`),
+      ...['', '-wal', '-shm'].map(suffix => path.join(deskCacheDir(userId), 'checkpoints', `${ticker}.db${suffix}`))]),
+    ...['out.json', 'events.jsonl', 'stderr.log', 'pid', 'launch', 'manifest.json', 'state.json', 'cancel.json', 'control.lock', 'owner.lock', 'claimed', ...[0, 1, 2].flatMap(i => [`result-${i}.json`, `exit-${i}.json`])].map(name => path.join(deskResultsDir(userId, runId), name))]) {
+    const relative = path.relative(root, target);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Artifact path escapes Desk root');
+    assertNoSymlinks(target);
   }
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+function assertNoSymlinks(target: string): void {
+  const resolved = path.resolve(target);
+  const root = path.parse(resolved).root;
+  let current = root;
+  for (const part of resolved.slice(root.length).split(path.sep)) {
+    current = path.join(current, part);
+    if (fs.lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('Symlink artifacts are not supported');
+  }
+}
+
+function validTickerOutput(out: { finalState?: unknown }, ticker: string, asOf: string): boolean {
+  const state = curateDeskState(out.finalState);
+  return !!state && Object.keys(state).length > 0
+    && (!state.company_of_interest || state.company_of_interest === ticker)
+    && (!state.trade_date || state.trade_date === asOf);
+}
+
+/** Recover only known legacy output filenames. Never walk arbitrary report/log trees. */
+export function hydrateDeskRun<T extends DeskResultRun & { id: string; userId: string }>(run: T): T {
+  if (hasDeskResults(run.finalState)) return run;
+  validateDeskArtifactPaths(run.userId, run.id);
+  const results = deskRunResults(run);
+  const root = deskResultsDir(run.userId, run.id);
+  for (let index = 0; index < results.length; index += 1) {
+    const ticker = results[index].ticker;
+    if (!isDeskTicker(ticker)) continue;
+    const archived = readOutFile(path.join(root, `out-${ticker}.json`));
+    const current = run.activeTicker === ticker || run.tickers.length === 1 ? readOutFile(deskOutPath(root)) : null;
+    const out = archived && validTickerOutput(archived, ticker, run.asOf) ? archived
+      : current && validTickerOutput(current, ticker, run.asOf) ? current : null;
+    if (!out) continue;
+    const signal = parseDeskSignalText(out.signal) ?? 'REVIEW';
+    results[index] = { ...results[index], signal, status: signal === 'REVIEW' ? 'review' : 'completed',
+      finalState: curateDeskState(out.finalState), error: null };
+  }
+  return { ...run, finalState: packDeskResults(results) };
+}
+
+/** Compare-and-swap merges prevent terminal cancellation from being overwritten by an exit. */
+async function updateDeskResults(
+  runId: string, userId: string,
+  change: (run: NonNullable<Awaited<ReturnType<typeof prisma.deskRun.findFirst>>>, results: DeskTickerResult[]) => Prisma.DeskRunUpdateManyMutationInput | null,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const run = await prisma.deskRun.findFirst({ where: { id: runId, userId } });
+    if (!run) return false;
+    const results = hasDeskResults(run.finalState) ? deskRunResults(run)
+      : run.status === 'queued' ? emptyDeskResults(run.tickers) : deskRunResults(hydrateDeskRun(run));
+    const data = change(run, results);
+    if (!data) return false;
+    const updated = await prisma.deskRun.updateMany({ where: { id: runId, userId, updatedAt: run.updatedAt, status: run.status },
+      data: { ...data, updatedAt: new Date(Math.max(Date.now(), run.updatedAt.getTime() + 1)) } });
+    if (updated.count) return true;
+  }
+  throw new Error('Desk result changed concurrently; retry the request');
+}
+
+export async function finishDeskRun(runId: string, userId: string, status: 'failed' | 'cancelled', error: string | null) {
+  return updateDeskResults(runId, userId, (run, results) => {
+    if (run.status !== 'queued' && run.status !== 'running') return null;
+    const now = new Date();
+    const active = run.activeTicker ?? run.tickers[0];
+    const finished = results.map(result => isAvailableDeskResult(result) ? result : {
+      ...result, status: result.ticker === active ? status : 'skipped' as const,
+      error: result.ticker === active ? error : 'Not started because the run stopped', finishedAt: now.toISOString(),
+    });
+    return { status, signal: null, error, finishedAt: now, finalState: packDeskResults(finished) as Prisma.InputJsonValue };
   });
 }

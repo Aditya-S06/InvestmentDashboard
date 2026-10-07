@@ -7,26 +7,14 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { getAdminEmails } from './config';
+import { isInsightsAdmin, syncAdminRole } from '@/lib/auth/admin';
+export { isInsightsAdmin, syncAdminRole } from '@/lib/auth/admin';
 
 export type InsightsKeySource = 'admin' | 'user';
 
 export interface ResolvedOpenRouterKey {
   key: string;
   source: InsightsKeySource;
-}
-
-export function isInsightsAdmin(email?: string | null, role?: string | null): boolean {
-  if (role === 'admin') return true;
-  const normalizedEmail = email?.trim().toLowerCase();
-  return !!normalizedEmail && getAdminEmails().includes(normalizedEmail);
-}
-
-export async function syncAdminRole(userId: string, email?: string | null): Promise<string | null> {
-  // TODO: promote ADMIN_EMAILS users to role=admin
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
-  return user?.role ?? null;
 }
 
 export async function resolveOpenRouterKey(

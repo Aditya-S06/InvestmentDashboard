@@ -3,7 +3,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { isInsightsAdmin, syncAdminRole } from '@/lib/insights/access';
+import { isInsightsAdmin, syncAdminRole } from '@/lib/auth/admin';
 
 export type AdminContext = { ok: true; userId: string; email: string; role: string | null };
 

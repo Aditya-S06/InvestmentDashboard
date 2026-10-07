@@ -1,13 +1,17 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { requireDeskAccess } from '@/lib/desk/access';
 import { consumeDeskRateLimit } from '@/lib/desk/rate-limit';
 import { redactDeskSecrets } from '@/lib/desk/redact';
-import { reapOrphanDeskRuns, startDeskRun } from '@/lib/desk/runner';
-import { DESK_ANALYSTS, DESK_ASSET_TYPES, DESK_DEPTHS } from '@/lib/desk/types';
+import { DeskCheckpointConflict, withDeskCheckpointControl, finishDeskRun, reapOrphanDeskRuns, startDeskRun, validateDeskArtifactPaths } from '@/lib/desk/runner';
+import { DESK_ANALYSTS, DESK_ASSET_TYPES, DESK_DEPTHS, isDeskDate, isDeskTicker } from '@/lib/desk/types';
+import { emptyDeskResults, packDeskResults } from '@/lib/desk/report';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { DESK_RAW_ANALYST_MAX, DeskRequestError, readDeskLaunchJson } from '@/lib/desk/limits';
 
 const createDeskRunSchema = z
   .object({
@@ -18,15 +22,18 @@ const createDeskRunSchema = z
           .trim()
           .min(1)
           .max(10)
-          .transform((ticker) => ticker.toUpperCase()),
+          .transform((ticker) => ticker.toUpperCase()).refine(isDeskTicker, 'Invalid ticker'),
       )
       .min(1, 'At least one ticker is required')
-      .max(3, 'Maximum 3 tickers per run'),
-    asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'asOf must be YYYY-MM-DD'),
+      .max(3, 'Maximum 3 tickers per run').transform(tickers => [...new Set(tickers)]),
+    asOf: z.string().refine(isDeskDate, 'asOf must be a real YYYY-MM-DD date'),
     depth: z.enum(DESK_DEPTHS),
-    analysts: z.array(z.enum(DESK_ANALYSTS)).min(1, 'At least one analyst is required'),
+    analysts: z.array(z.enum(DESK_ANALYSTS)).min(1, 'At least one analyst is required')
+      .max(DESK_RAW_ANALYST_MAX, `Maximum ${DESK_RAW_ANALYST_MAX} raw analyst selections`)
+      .transform(values => DESK_ANALYSTS.filter(value => values.includes(value))),
     assetType: z.enum(DESK_ASSET_TYPES),
     checkpoint: z.boolean(),
+    resume: z.object({ ticker: z.string().refine(isDeskTicker), threadId: z.string().regex(/^[a-f0-9]{16}$/), checkpointId: z.string().min(1).max(128) }).optional(),
   })
   .refine((input) => input.assetType !== 'crypto' || !input.analysts.includes('fundamentals'), {
     message: 'Crypto runs cannot include the fundamentals analyst',
@@ -37,7 +44,11 @@ export async function POST(req: NextRequest) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
-  const body = await req.json().catch(() => null);
+  let body: unknown;
+  try { body = await readDeskLaunchJson(req); } catch (error) {
+    if (error instanceof DeskRequestError) return NextResponse.json({ error: error.message }, { status: error.status });
+    throw error;
+  }
   const parsed = createDeskRunSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -47,6 +58,9 @@ export async function POST(req: NextRequest) {
   }
 
   const input = parsed.data;
+  try { validateDeskArtifactPaths(auth.userId, undefined, input.tickers); } catch {
+    return NextResponse.json({ error: 'Invalid Desk artifact path' }, { status: 400 });
+  }
 
   await reapOrphanDeskRuns(auth.userId);
 
@@ -67,46 +81,64 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const run = await prisma.deskRun.create({
-    data: {
-      userId: auth.userId,
-      tickers: input.tickers,
-      asOf: input.asOf,
-      depth: input.depth,
-      analysts: input.analysts,
-      assetType: input.assetType,
-      checkpoint: input.checkpoint,
-      status: 'queued',
-      params: input,
-    },
-  });
-
   try {
-    await startDeskRun({
-      id: run.id,
-      userId: auth.userId,
-      tickers: input.tickers,
-      asOf: input.asOf,
-      depth: input.depth,
-      analysts: input.analysts,
-      assetType: input.assetType,
-      checkpoint: input.checkpoint,
-      openRouterKey: auth.key.key,
+    return await withDeskCheckpointControl(auth.userId, async control => {
+      if (input.resume) {
+        if (!input.checkpoint || input.tickers.length !== 1 || input.tickers[0] !== input.resume.ticker) {
+          return NextResponse.json({ error: 'Resume requires the saved single ticker and checkpoint enabled' }, { status: 400 });
+        }
+        await control({ command: 'restore', reference: input.resume, settings: { ...input, ticker: input.tickers[0] } });
+      }
+      const active = await prisma.deskRun.findFirst({ where: {
+        userId: auth.userId, status: { in: ['queued', 'running'] }, tickers: { hasSome: input.tickers },
+      }, select: { id: true } });
+      if (active) throw new DeskCheckpointConflict('Ticker is already queued/running; retry after it stops.');
+      const runId = randomUUID().replace(/-/g, '');
+      await control({ command: 'reserve', tickers: input.tickers, runId });
+      const run = await prisma.deskRun.create({
+        data: {
+          id: runId,
+          userId: auth.userId,
+          tickers: input.tickers,
+          asOf: input.asOf,
+          depth: input.depth,
+          analysts: input.analysts,
+          assetType: input.assetType,
+          checkpoint: input.checkpoint,
+          status: 'queued',
+          params: input,
+          finalState: packDeskResults(emptyDeskResults(input.tickers)) as Prisma.InputJsonValue,
+        },
+      });
+
+      try {
+        await startDeskRun({
+          id: run.id,
+          userId: auth.userId,
+          tickers: input.tickers,
+          asOf: input.asOf,
+          depth: input.depth,
+          analysts: input.analysts,
+          assetType: input.assetType,
+          checkpoint: input.checkpoint,
+          openRouterKey: auth.key.key,
+          resume: input.resume,
+        });
+      } catch (error) {
+        const message = redactDeskSecrets(
+          error instanceof Error ? error.message : 'Desk runner failed to start',
+          [auth.key.key],
+        );
+        await finishDeskRun(run.id, auth.userId, 'failed', message);
+        return NextResponse.json({ error: message }, { status: 500 });
+      }
+
+      const started = await prisma.deskRun.findUnique({ where: { id: run.id } });
+      return NextResponse.json(started ?? run, { status: 201 });
     });
   } catch (error) {
-    const message = redactDeskSecrets(
-      error instanceof Error ? error.message : 'Desk runner failed to start',
-      [auth.key.key],
-    );
-    await prisma.deskRun.update({
-      where: { id: run.id },
-      data: { status: 'failed', error: message, finishedAt: new Date() },
-    });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: error instanceof DeskCheckpointConflict ? error.message : 'Desk launch coordination failed; retry.' }, { status: error instanceof DeskCheckpointConflict ? error.status : 503 });
   }
-
-  const started = await prisma.deskRun.findUnique({ where: { id: run.id } });
-  return NextResponse.json(started ?? run, { status: 201 });
 }
 
 export async function GET() {

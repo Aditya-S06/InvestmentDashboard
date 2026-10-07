@@ -24,6 +24,8 @@ export type InsightStreamEvent =
 export interface RunInsightChatInput {
   apiKey: string;
   userId: string;
+  /** Authenticated access context supplied by the chat/brief routes. */
+  isAdmin: boolean;
   messages: InsightInputMessage[];
   sessionId?: string;
   /** OpenRouter model id from INSIGHTS_MODEL_OPTIONS */

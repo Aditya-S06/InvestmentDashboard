@@ -55,7 +55,7 @@ function phaseTone(
   id: PhaseId,
   current: string | null,
   runStatus: DeskRunStatus,
-): 'pending' | 'active' | 'done' {
+): 'pending' | 'active' | 'done' | 'stopped' {
   const order = PHASES.map((phase) => phase.id);
   const currentId = current && isPhaseId(current) ? current : null;
   const i = order.indexOf(id);
@@ -64,7 +64,7 @@ function phaseTone(
   if (terminalDone) return 'done';
   if (c < 0) return 'pending';
   if (i < c) return 'done';
-  if (i === c) return runStatus === 'failed' || runStatus === 'cancelled' ? 'done' : 'active';
+  if (i === c) return runStatus === 'failed' || runStatus === 'cancelled' ? 'stopped' : 'active';
   return 'pending';
 }
 
@@ -103,10 +103,10 @@ export function DeskRunTimeline({
           <li key={item.id} className="flex flex-wrap items-center gap-2">
             <span
               className={`w-40 shrink-0 text-xs font-medium ${
-                tone === 'active' ? 'text-[#00c853]' : tone === 'done' ? 'text-foreground' : 'text-muted-foreground'
+                tone === 'stopped' ? 'text-[#ffa726]' : tone === 'active' ? 'text-[#00c853]' : tone === 'done' ? 'text-foreground' : 'text-muted-foreground'
               }`}
             >
-              {item.label}
+              {item.label}{tone === 'stopped' ? ` · ${runStatus}` : ''}
             </span>
             {item.id === 'analysts' &&
               selected.map((analyst) => {

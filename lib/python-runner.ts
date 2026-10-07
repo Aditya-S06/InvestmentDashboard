@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { runtimeEnv } from '@/lib/subprocess-env';
 
 const MARKET_SCRIPT = path.join(process.cwd(), 'scripts', 'market_data.py');
 const WEBULL_SCRIPT = path.join(process.cwd(), 'scripts', 'webull_client.py');
@@ -20,16 +21,18 @@ function getPythonExecutable(): string {
 }
 
 function webullEnv(): NodeJS.ProcessEnv {
+  // Match webull_client.py's environment aliases and per-field fallback exactly.
+  const environment = process.env.WEBULL_ENVIRONMENT ?? 'sandbox';
+  const sandbox = ['sandbox', 'uat', 'test'].includes((environment || 'prod').trim().toLowerCase());
+  const suffix = sandbox ? 'SANDBOX' : 'PROD';
+  const key = (process.env[`WEBULL_APP_KEY_${suffix}`] || '').trim() || (process.env.WEBULL_APP_KEY || '').trim();
+  const secret = (process.env[`WEBULL_APP_SECRET_${suffix}`] || '').trim() || (process.env.WEBULL_APP_SECRET || '').trim();
   return {
-    ...process.env,
-    WEBULL_APP_KEY: process.env.WEBULL_APP_KEY ?? '',
-    WEBULL_APP_SECRET: process.env.WEBULL_APP_SECRET ?? '',
-    WEBULL_APP_KEY_SANDBOX: process.env.WEBULL_APP_KEY_SANDBOX ?? '',
-    WEBULL_APP_SECRET_SANDBOX: process.env.WEBULL_APP_SECRET_SANDBOX ?? '',
-    WEBULL_APP_KEY_PROD: process.env.WEBULL_APP_KEY_PROD ?? '',
-    WEBULL_APP_SECRET_PROD: process.env.WEBULL_APP_SECRET_PROD ?? '',
+    ...runtimeEnv(),
+    [`WEBULL_APP_KEY_${suffix}`]: key,
+    [`WEBULL_APP_SECRET_${suffix}`]: secret,
     WEBULL_REGION_ID: process.env.WEBULL_REGION_ID ?? 'us',
-    WEBULL_ENVIRONMENT: process.env.WEBULL_ENVIRONMENT ?? 'sandbox',
+    WEBULL_ENVIRONMENT: environment,
     WEBULL_RATE_LIMIT_PER_MIN: process.env.WEBULL_RATE_LIMIT_PER_MIN ?? '30',
     WEBULL_TOKEN_DIR: process.env.WEBULL_TOKEN_DIR ?? path.join(process.cwd(), 'conf'),
     WEBULL_TRADING_ENABLED: process.env.WEBULL_TRADING_ENABLED ?? 'false',
@@ -39,13 +42,14 @@ function webullEnv(): NodeJS.ProcessEnv {
 
 function youtubeEnv(): NodeJS.ProcessEnv {
   return {
-    ...process.env,
+    ...runtimeEnv(),
     YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY ?? '',
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? '',
     YOUTUBE_CACHE_DIR: process.env.YOUTUBE_CACHE_DIR ?? path.join(process.cwd(), 'data'),
     YOUTUBE_CHANNELS_FILE: process.env.YOUTUBE_CHANNELS_FILE ?? path.join(process.cwd(), 'conf', 'youtube_channels.json'),
     YOUTUBE_POLL_SINCE_DAYS: process.env.YOUTUBE_POLL_SINCE_DAYS ?? '2',
     YOUTUBE_RATE_LIMIT_PER_MIN: process.env.YOUTUBE_RATE_LIMIT_PER_MIN ?? '30',
+    YOUTUBE_SUMMARY_MODEL: process.env.YOUTUBE_SUMMARY_MODEL ?? '',
   };
 }
 
@@ -61,7 +65,7 @@ type RunScriptOptions = {
 function runScript(
   scriptPath: string,
   args: string[],
-  env?: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv,
   timeoutMs = 30000,
   options?: RunScriptOptions,
 ): Promise<any> {
@@ -71,7 +75,7 @@ function runScript(
     const child = execFile(
       python,
       [scriptPath, ...args],
-      { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 10, env: env ?? process.env, encoding: 'utf8' },
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 10, env, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (error) {
           console.error('Python error:', stderr);
@@ -103,13 +107,14 @@ function runScript(
 }
 
 const MARKET_TIMEOUTS_MS: Record<string, number> = {
-  // YouTube passthrough and multi-symbol card batches outlast a single quote.
-  youtube: 180000,
+  // Multi-symbol card batches outlast a single quote.
   cards: 120000,
 };
 
 export function runPython(args: string[]): Promise<any> {
-  return runScript(MARKET_SCRIPT, args, webullEnv(), MARKET_TIMEOUTS_MS[args[0]] ?? 30000);
+  // Legacy callers must use the YouTube boundary, never give its keys to market_data.py.
+  if (args[0] === 'youtube') return runYoutube(args.slice(1));
+  return runScript(MARKET_SCRIPT, args, runtimeEnv(), MARKET_TIMEOUTS_MS[args[0]] ?? 30000);
 }
 
 export function runWebull(

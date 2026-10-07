@@ -29,6 +29,8 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
+from subprocess_env import runtime_env
+
 _PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
 
 try:
@@ -418,7 +420,7 @@ def extract_transcript_ytdlp(video_id: str) -> Optional[str]:
                 outtmpl,
                 url,
             ]
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90, env=runtime_env())
             if proc.returncode != 0:
                 _log(f"yt-dlp failed for {video_id}: {proc.stderr[:300]}")
                 return None

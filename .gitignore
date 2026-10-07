@@ -81,7 +81,9 @@ home/
 
 # Explicitly allow only README, AGENTS, and project instructions markdown files
 !README.md
+!readme.md
 !AGENTS.md
+!agents.md
 !.project_instructions.md
 !project_instructions.md
 # AI Insights harness (confidential agent instructions — keep local only)
@@ -118,3 +120,6 @@ scripts/_smoke*.py
 *.p12
 credentials.json
 secrets.json
+
+# Public security/setup documentation only; private notes remain ignored.
+!/SECURITY.md

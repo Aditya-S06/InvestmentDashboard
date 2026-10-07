@@ -3,15 +3,11 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  clearDeskCheckpointFile,
   deskCacheDir,
   deskCheckpointFile,
-  deskHasCheckpoint,
   deskMemoryLogPath,
   deskResultsDir,
-  deskTimeoutMessage,
   deskUserDir,
-  deskWallMs,
   listDeskCheckpointTickers,
 } from '@/lib/desk/config';
 import { deskHasMoreTickers, formatDeskTickerHeader } from '@/lib/desk/types';
@@ -44,7 +40,7 @@ describe('desk isolation paths', () => {
     );
   });
 
-  it('lists and clears only that user ticker checkpoint file', () => {
+  it('lists only that user ticker database as inspection candidates', () => {
     useTempRoot();
     const fileA = deskCheckpointFile('user-a', 'NVDA');
     const fileB = deskCheckpointFile('user-b', 'NVDA');
@@ -54,41 +50,12 @@ describe('desk isolation paths', () => {
     fs.writeFileSync(fileB, 'b');
 
     expect(listDeskCheckpointTickers('user-a')).toEqual(['NVDA']);
-    expect(deskHasCheckpoint('user-a', 'NVDA')).toBe(true);
-    expect(clearDeskCheckpointFile('user-a', 'NVDA')).toBe(true);
-    expect(deskHasCheckpoint('user-a', 'NVDA')).toBe(false);
+    expect(listDeskCheckpointTickers('user-b')).toEqual(['NVDA']);
     expect(fs.existsSync(fileB)).toBe(true);
   });
 });
 
-describe('desk wall and header', () => {
-  it('does not use 90s for deep', () => {
-    expect(deskWallMs('fast')).toBe(90_000);
-    expect(deskWallMs('deep')).toBe(300_000);
-    expect(deskWallMs('deep')).toBeGreaterThan(deskWallMs('fast'));
-  });
-
-  it('mentions resume only when checkpoint was on', () => {
-    const timedOut = deskTimeoutMessage({
-      depth: 'fast',
-      ticker: 'NVDA',
-      wallMs: 90_000,
-      checkpoint: false,
-    });
-    expect(timedOut).toContain('timed out after 90s');
-    expect(timedOut).not.toContain('resume');
-
-    const resume = deskTimeoutMessage({
-      depth: 'deep',
-      ticker: 'NVDA',
-      wallMs: 300_000,
-      checkpoint: true,
-    });
-    expect(resume).toContain('300s');
-    expect(resume).toContain('deep');
-    expect(resume.toLowerCase()).toContain('resume');
-  });
-
+describe('desk ticker header', () => {
   it('formats a live multi-ticker header as NVDA 1/2', () => {
     expect(formatDeskTickerHeader(['NVDA', 'AAPL'], 'NVDA')).toBe('NVDA 1/2');
     expect(formatDeskTickerHeader(['NVDA', 'AAPL'], 'AAPL')).toBe('AAPL 2/2');

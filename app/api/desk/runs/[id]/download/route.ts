@@ -1,12 +1,11 @@
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-import fs from 'fs';
-import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireDeskAccess } from '@/lib/desk/access';
-import { deskResultsDir } from '@/lib/desk/config';
-import { deskReportMarkdown, parseDeskReport, parseDeskSignalText, resolveDeskRating } from '@/lib/desk/report';
+import { finalizeDeskRun, hydrateDeskRun } from '@/lib/desk/runner';
+import { redactDeskSecrets } from '@/lib/desk/redact';
+import { deskReportMarkdown, deskRunResults, isAvailableDeskResult, reportForDeskResult, selectDeskResult } from '@/lib/desk/report';
 import { prisma } from '@/lib/prisma';
 
 interface RouteContext {
@@ -33,41 +32,7 @@ function crc32(data: Buffer): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function includeReportFile(relPosix: string): boolean {
-  const base = relPosix.split('/').pop() ?? relPosix;
-  if (base === 'trading_memory.md' || base === 'events.jsonl' || base === 'pid') return false;
-  if (relPosix.split('/').includes('cache')) return false;
-  if (relPosix === 'out.json') return true;
-  if (relPosix.split('/').includes('TradingAgentsStrategy_logs')) return true;
-  return relPosix.endsWith('.md');
-}
-
-function walkReportFiles(root: string): { name: string; data: Buffer }[] {
-  const resolved = path.resolve(root);
-  const files: { name: string; data: Buffer }[] = [];
-  if (!fs.existsSync(resolved)) return files;
-
-  const visit = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const abs = path.join(dir, entry.name);
-      const rel = path.relative(resolved, abs);
-      if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
-      const relPosix = rel.split(path.sep).join('/');
-      if (entry.isDirectory()) {
-        if (entry.name === 'cache') continue;
-        visit(abs);
-        continue;
-      }
-      if (!includeReportFile(relPosix)) continue;
-      files.push({ name: relPosix, data: fs.readFileSync(abs) });
-    }
-  };
-
-  visit(resolved);
-  return files;
-}
-
-function buildStoredZip(files: { name: string; data: Buffer }[]): Buffer {
+function buildStoredZip(files: { name: string; data: Buffer }[]): ReadableStream<Uint8Array> {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
@@ -88,8 +53,7 @@ function buildStoredZip(files: { name: string; data: Buffer }[]): Buffer {
     local.writeUInt16LE(name.length, 26);
     local.writeUInt16LE(0, 28);
 
-    const localFull = Buffer.concat([local, name, file.data]);
-    locals.push(localFull);
+    locals.push(local, name, file.data);
 
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
@@ -109,63 +73,75 @@ function buildStoredZip(files: { name: string; data: Buffer }[]): Buffer {
     central.writeUInt16LE(0, 36);
     central.writeUInt32LE(0, 38);
     central.writeUInt32LE(offset, 42);
-    centrals.push(Buffer.concat([central, name]));
-    offset += localFull.length;
+    centrals.push(central, name);
+    offset += local.length + name.length + file.data.length;
   }
 
-  const centralDir = Buffer.concat(centrals);
+  const centralSize = centrals.reduce((sum, part) => sum + part.length, 0);
   const eocd = Buffer.alloc(22);
   eocd.writeUInt32LE(0x06054b50, 0);
   eocd.writeUInt16LE(0, 4);
   eocd.writeUInt16LE(0, 6);
   eocd.writeUInt16LE(files.length, 8);
   eocd.writeUInt16LE(files.length, 10);
-  eocd.writeUInt32LE(centralDir.length, 12);
+  eocd.writeUInt32LE(centralSize, 12);
   eocd.writeUInt32LE(offset, 16);
   eocd.writeUInt16LE(0, 20);
-  return Buffer.concat([...locals, centralDir, eocd]);
+  const parts: (Buffer | undefined)[] = [...locals, ...centrals, eocd];
+  let index = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index === parts.length) { controller.close(); return; }
+      const part = parts[index]!;
+      parts[index++] = undefined;
+      controller.enqueue(part);
+    },
+    cancel() { parts.length = 0; },
+  }, { highWaterMark: 0 });
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
+  await finalizeDeskRun(params.id, auth.userId);
   const run = await prisma.deskRun.findFirst({
     where: { id: params.id, userId: auth.userId },
   });
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 });
 
-  const status = run.status === 'completed' || run.status === 'review' ? run.status : null;
-  if (!status) {
-    return NextResponse.json({ error: 'Report is only available after the run finishes' }, { status: 409 });
-  }
-
+  const hydrated = hydrateDeskRun(run);
+  const requested = req.nextUrl.searchParams.get('ticker');
+  const selected = selectDeskResult(hydrated, requested);
+  if (!selected) return NextResponse.json({ error: 'Ticker not found' }, { status: 404 });
   const format = req.nextUrl.searchParams.get('format') === 'zip' ? 'zip' : 'md';
-  const ticker = (run.tickers[0] ?? 'desk').toUpperCase();
-  const report = parseDeskReport(run.finalState, ticker);
-  const rating = resolveDeskRating(parseDeskSignalText(run.signal), report, status);
-  const markdown = deskReportMarkdown(report, rating);
-  const slug = (report.ticker || ticker).replace(/[^A-Z0-9.-]/gi, '_');
-
+  const available = deskRunResults(hydrated).filter(isAvailableDeskResult);
+  if ((format === 'md' && !isAvailableDeskResult(selected)) || available.length === 0) {
+    return NextResponse.json({ error: 'Ticker report is not available' }, { status: 409 });
+  }
+  const scrub = (text: string) => redactDeskSecrets(text, [auth.key.key]);
+  const slug = selected.ticker.replace(/[^A-Z0-9.-]/gi, '_');
   if (format === 'md') {
-    return new NextResponse(markdown, {
-      headers: {
-        'Content-Type': 'text/markdown; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${slug}-desk-report.md"`,
-      },
-    });
+    const { report, rating } = reportForDeskResult(selected, run.asOf);
+    return new NextResponse(scrub(deskReportMarkdown(report, rating)), { headers: {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${slug}-desk-report.md"`,
+    } });
   }
-
-  const files = walkReportFiles(deskResultsDir(run.userId, run.id));
-  if (files.length === 0) {
-    files.push({ name: `${slug}-desk-report.md`, data: Buffer.from(markdown, 'utf8') });
-  }
-
-  const zip = buildStoredZip(files);
-  return new NextResponse(new Uint8Array(zip), {
-    headers: {
-      'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${slug}-desk-report.zip"`,
-    },
+  // Generate an allowlisted archive from curated results; no directory traversal,
+  // raw logs, memory, credentials, control files or checkpoint sidecars.
+  const files = available.flatMap(result => {
+    const { report, rating } = reportForDeskResult(result, run.asOf);
+    return [
+      { name: `${result.ticker}-desk-report.md`, data: Buffer.from(scrub(deskReportMarkdown(report, rating))) },
+      { name: `out-${result.ticker}.json`, data: Buffer.from(scrub(JSON.stringify({
+        ticker: result.ticker, status: result.status, signal: rating, finalState: result.finalState,
+        startedAt: result.startedAt, finishedAt: result.finishedAt,
+      }, null, 2))) },
+    ];
   });
+  return new NextResponse(buildStoredZip(files), { headers: {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': 'attachment; filename="desk-reports.zip"',
+  } });
 }
