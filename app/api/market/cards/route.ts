@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 
+// Lane: DISPLAY (screen-rendered watchlist grid) — source must be
+// display-licensed (see docs/market-data-lanes.md). Never Webull non-display.
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/require-user';
 import { getCachedCard, setCachedCard } from '@/lib/market/cache';

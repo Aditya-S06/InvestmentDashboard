@@ -123,3 +123,7 @@ secrets.json
 
 # Public security/setup documentation only; private notes remain ignored.
 !/SECURITY.md
+
+# Committed data-compliance docs (D0 lane classification).
+!docs/market-data-lanes.md
+!docs/identity-hardening.md

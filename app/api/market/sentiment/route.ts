@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 
+// Lane: NONDISPLAY, internal-only (no callers today; D3 moves or removes it).
+// Never Webull-to-screen (see docs/market-data-lanes.md).
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/require-user';
 import { invalidSymbol, marketError } from '@/lib/market/http';

@@ -1,5 +1,8 @@
 export const dynamic = 'force-dynamic';
 
+// Lane: NONDISPLAY (no UI consumers; health/order-validation/server use only).
+// Do NOT wire to UI without reclassifying to DISPLAY
+// (see docs/market-data-lanes.md).
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/require-user';
 import { invalidSymbol, marketError } from '@/lib/market/http';

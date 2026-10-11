@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 
+// Lane: DISPLAY (ticker search UI) — display-licensed source only
+// (see docs/market-data-lanes.md). Never Webull non-display.
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/require-user';
 import { logServerError } from '@/lib/http/errors';

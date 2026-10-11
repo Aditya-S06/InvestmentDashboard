@@ -1,5 +1,8 @@
 import 'server-only';
 
+// Lane: NONDISPLAY — server-only fill prices and excursion bars for the paper
+// engine. Webull-first target (D1). Must never be imported by client code
+// (see docs/market-data-lanes.md).
 import { runPython } from '@/lib/python-runner';
 import { calculateMfeMae } from './math';
 import type { DecimalLike, ExcursionResult, PaperSide, PriceBar } from './types';

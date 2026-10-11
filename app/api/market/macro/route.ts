@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 
+// Lane: DISPLAY (dashboard macro strip) — display-licensed values only
+// (see docs/market-data-lanes.md). Never Webull non-display.
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth/require-user';
 import { marketError } from '@/lib/market/http';
