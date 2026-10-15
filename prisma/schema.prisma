@@ -9,6 +9,15 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// Only the restricted identity connection can access authentication counters.
+model AuthRateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime @db.Timestamptz(3)
+
+  @@index([resetAt])
+}
+
 model User {
   id              String           @id @default(cuid())
   name            String?
@@ -17,6 +26,13 @@ model User {
   image           String?
   password        String?
   role            String           @default("user")
+  sessionVersion  Int              @default(0)
+  disabledAt      DateTime?
+  mfaSecret       String?
+  mfaPendingSecret String?
+  mfaPendingExpiresAt DateTime?
+  mfaLastCounter  Int              @default(-1)
+  mfaRecoveryHashes String[]        @default([])
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   accounts        Account[]

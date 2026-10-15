@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -7,7 +8,7 @@ import { requireDeskAccess } from '@/lib/desk/access';
 import { consumeDeskRateLimit } from '@/lib/desk/rate-limit';
 import { redactDeskSecrets } from '@/lib/desk/redact';
 import { DeskCheckpointConflict, withDeskCheckpointControl, finishDeskRun, reapOrphanDeskRuns, startDeskRun, validateDeskArtifactPaths } from '@/lib/desk/runner';
-import { DESK_ANALYSTS, DESK_ASSET_TYPES, DESK_DEPTHS, isDeskDate, isDeskTicker } from '@/lib/desk/types';
+import { DESK_ANALYSTS, DESK_ASSET_TYPES, DESK_DEPTHS, isDeskDate, isDeskTicker, isDeskTodayOrPast } from '@/lib/desk/types';
 import { emptyDeskResults, packDeskResults } from '@/lib/desk/report';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -26,7 +27,8 @@ const createDeskRunSchema = z
       )
       .min(1, 'At least one ticker is required')
       .max(3, 'Maximum 3 tickers per run').transform(tickers => [...new Set(tickers)]),
-    asOf: z.string().refine(isDeskDate, 'asOf must be a real YYYY-MM-DD date'),
+    asOf: z.string().refine(isDeskDate, 'asOf must be a real YYYY-MM-DD date')
+      .refine(isDeskTodayOrPast, 'asOf must not be in the future'),
     depth: z.enum(DESK_DEPTHS),
     analysts: z.array(z.enum(DESK_ANALYSTS)).min(1, 'At least one analyst is required')
       .max(DESK_RAW_ANALYST_MAX, `Maximum ${DESK_RAW_ANALYST_MAX} raw analyst selections`)
@@ -40,7 +42,7 @@ const createDeskRunSchema = z
     path: ['analysts'],
   });
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
@@ -90,9 +92,9 @@ export async function POST(req: NextRequest) {
         await control({ command: 'restore', reference: input.resume, settings: { ...input, ticker: input.tickers[0] } });
       }
       const active = await prisma.deskRun.findFirst({ where: {
-        userId: auth.userId, status: { in: ['queued', 'running'] }, tickers: { hasSome: input.tickers },
+          userId: auth.userId, status: { in: ['queued', 'running'] },
       }, select: { id: true } });
-      if (active) throw new DeskCheckpointConflict('Ticker is already queued/running; retry after it stops.');
+        if (active) throw new DeskCheckpointConflict('A Desk batch is already queued/running; retry after it stops.');
       const runId = randomUUID().replace(/-/g, '');
       await control({ command: 'reserve', tickers: input.tickers, runId });
       const run = await prisma.deskRun.create({
@@ -170,3 +172,5 @@ export async function GET() {
 
   return NextResponse.json(runs);
 }
+
+export const POST = withMutationProtection(POSTHandler);

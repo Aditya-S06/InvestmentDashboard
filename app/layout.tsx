@@ -3,6 +3,7 @@ import './globals.css';
 import { Providers } from '@/components/providers';
 import { Toaster } from '@/components/ui/sonner';
 import { ChunkLoadErrorHandler } from '@/components/chunk-load-error-handler';
+import { headers } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
-        <Providers>
+        <Providers nonce={headers().get('x-nonce') || undefined}>
           {children}
           <Toaster />
           <ChunkLoadErrorHandler />

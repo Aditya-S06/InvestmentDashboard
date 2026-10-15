@@ -1,12 +1,15 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { identityDb as prisma } from '@/lib/identity-db';
+import { validPassword } from '@/lib/auth/identity';
 import bcrypt from 'bcryptjs';
 import { isPublicSignupEnabled, MIN_PASSWORD_LENGTH } from '@/lib/auth/signup';
 import {
   clientIpFromHeaders,
   consumeRateLimit,
+  RateLimitUnavailable,
   SIGNUP_RATE_LIMIT,
   SIGNUP_WINDOW_MS,
   signupRateLimitKey,
@@ -15,21 +18,21 @@ import { serverError } from '@/lib/http/errors';
 
 const CREATE_FAILED = 'Could not create the account';
 
-export async function POST(req: NextRequest) {
-  const ip = clientIpFromHeaders(req.headers);
-  const limited = consumeRateLimit(signupRateLimitKey(ip), SIGNUP_RATE_LIMIT, SIGNUP_WINDOW_MS);
-  if (!limited.allowed) {
-    return NextResponse.json(
-      { error: 'Too many attempts. Try again later.' },
-      { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } },
-    );
-  }
-
-  if (!isPublicSignupEnabled()) {
-    return NextResponse.json({ error: 'Registration is disabled on this instance' }, { status: 403 });
-  }
-
+async function POSTHandler(req: NextRequest) {
   try {
+    const ip = clientIpFromHeaders(req.headers);
+    const limited = await consumeRateLimit(signupRateLimitKey(ip), SIGNUP_RATE_LIMIT, SIGNUP_WINDOW_MS);
+    if (!limited.allowed) {
+      return NextResponse.json(
+        { error: 'Too many attempts. Try again later.' },
+        { status: 429, headers: { 'Retry-After': String(limited.retryAfterSec) } },
+      );
+    }
+
+    if (!isPublicSignupEnabled()) {
+      return NextResponse.json({ error: 'Registration is disabled on this instance' }, { status: 403 });
+    }
+
     const body = await req.json();
     const { email: rawEmail, password, name } = body ?? {};
 
@@ -40,9 +43,9 @@ export async function POST(req: NextRequest) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
+    if (!validPassword(password)) {
       return NextResponse.json(
-        { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` },
+        { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters and at most 72 UTF-8 bytes` },
         { status: 400 },
       );
     }
@@ -58,6 +61,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ id: user.id, email: user.email, name: user.name }, { status: 201 });
   } catch (error) {
+    if (error instanceof RateLimitUnavailable) return NextResponse.json({ error: 'Registration temporarily unavailable' }, { status: 503 });
     return serverError('signup', error, CREATE_FAILED);
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

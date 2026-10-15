@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { Prisma } from '@prisma/client';
@@ -52,7 +53,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, { params }: RouteContext) {
+async function PATCHHandler(request: Request, { params }: RouteContext) {
   const userId = await requirePaperUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -201,7 +202,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: RouteContext) {
+async function DELETEHandler(_request: Request, { params }: RouteContext) {
   const userId = await requirePaperUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -219,3 +220,6 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     return paperError(error);
   }
 }
+
+export const PATCH = withMutationProtection(PATCHHandler);
+export const DELETE = withMutationProtection(DELETEHandler);

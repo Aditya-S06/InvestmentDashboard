@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 import { NextResponse } from 'next/server';
 import { requireBrokerAdmin } from '@/lib/webull/require-admin';
 import { parseTicket, placeOrder, tradingErrorResponse } from '@/lib/webull/orders';
@@ -5,7 +6,7 @@ import { requestIp } from '@/lib/webull/http';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   const auth = await requireBrokerAdmin();
   if ('error' in auth) return auth.error;
   try {
@@ -18,3 +19,5 @@ export async function POST(request: Request) {
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

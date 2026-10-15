@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -44,7 +45,7 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
   const { userId } = auth;
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE(req: NextRequest) {
+async function DELETEHandler(req: NextRequest) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
   const { userId } = auth;
@@ -82,3 +83,6 @@ export async function DELETE(req: NextRequest) {
     return serverError('watchlist/delete', error, 'Could not remove that ticker');
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);
+export const DELETE = withMutationProtection(DELETEHandler);

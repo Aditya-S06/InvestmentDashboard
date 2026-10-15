@@ -1,66 +1,20 @@
 import 'server-only';
+import { identityDb as prisma } from '@/lib/identity-db';
+import { consumeDatabaseRateLimit } from './rate-limit-db';
 
-/** Per-process only. Multiple Node instances each have their own counters. */
 export const LOGIN_RATE_LIMIT = 10;
 export const LOGIN_IP_RATE_LIMIT = 30;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 export const SIGNUP_RATE_LIMIT = 5;
 export const SIGNUP_WINDOW_MS = 15 * 60 * 1000;
 
-const MAX_BUCKETS = 5_000;
-
-type Bucket = { count: number; resetAt: number };
-
-const buckets = new Map<string, Bucket>();
-
-export type RateLimitResult = {
-  allowed: boolean;
-  remaining: number;
-  retryAfterSec: number;
-};
-
-function pruneExpired(now: number) {
-  if (buckets.size < 1_000) return;
-  for (const [key, bucket] of buckets) {
-    if (now >= bucket.resetAt) buckets.delete(key);
-  }
+export class RateLimitUnavailable extends Error {
+  constructor() { super('Authentication rate limiter unavailable'); }
 }
 
-function evictOldestIfNeeded() {
-  while (buckets.size >= MAX_BUCKETS) {
-    const oldest = buckets.keys().next().value;
-    if (oldest == null) break;
-    buckets.delete(oldest);
-  }
-}
-
-export function consumeRateLimit(
-  key: string,
-  limit: number,
-  windowMs: number,
-  now = Date.now(),
-): RateLimitResult {
-  pruneExpired(now);
-  evictOldestIfNeeded();
-  const existing = buckets.get(key);
-  if (!existing || now >= existing.resetAt) {
-    const resetAt = now + windowMs;
-    buckets.set(key, { count: 1, resetAt });
-    return { allowed: true, remaining: limit - 1, retryAfterSec: Math.ceil(windowMs / 1000) };
-  }
-  if (existing.count >= limit) {
-    return {
-      allowed: false,
-      remaining: 0,
-      retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
-    };
-  }
-  existing.count += 1;
-  return {
-    allowed: true,
-    remaining: limit - existing.count,
-    retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
-  };
+export async function consumeRateLimit(key: string, limit: number, windowMs: number) {
+  try { return await consumeDatabaseRateLimit(prisma, key, limit, windowMs); }
+  catch { throw new RateLimitUnavailable(); }
 }
 
 type HeaderBag = Headers | Record<string, string | string[] | undefined | null>;

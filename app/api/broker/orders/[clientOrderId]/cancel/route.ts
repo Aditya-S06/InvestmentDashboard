@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 import { NextResponse } from 'next/server';
 import { requireBrokerAdmin } from '@/lib/webull/require-admin';
 import { cancelOrder, tradingErrorResponse } from '@/lib/webull/orders';
@@ -7,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 type Ctx = { params: Promise<{ clientOrderId: string }> };
 
-export async function POST(_request: Request, context: Ctx) {
+async function POSTHandler(_request: Request, context: Ctx) {
   const auth = await requireBrokerAdmin();
   if ('error' in auth) return auth.error;
   try {
@@ -19,3 +20,5 @@ export async function POST(_request: Request, context: Ctx) {
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
@@ -17,6 +19,7 @@ import {
   type DeskDepth,
 } from '@/lib/desk/types';
 import { useWatchlist } from '../../_components/watchlist-provider';
+import { DESK_POLICY } from '@/lib/desk/policy';
 
 const MAX_TICKERS = 3;
 
@@ -66,7 +69,7 @@ export function DeskLaunchForm() {
     }
     let cancelled = false;
     const query = new URLSearchParams({ tickers: tickers.join(',') });
-    void fetch(`/api/desk/checkpoints?${query}`, { cache: 'no-store' })
+    void apiFetch(`/api/desk/checkpoints?${query}`, { cache: 'no-store' })
       .then(async (res) => {
         const data = (await res.json().catch(() => null)) as { checkpoints?: DeskCheckpointListing[] } | null;
         if (cancelled) return;        if (!res.ok) { setResumable([]); return; }
@@ -106,7 +109,7 @@ export function DeskLaunchForm() {
   const clearCheckpoint = async (ticker: string) => {
     setError(null);
     try {
-      const res = await fetch('/api/desk/checkpoints', {
+      const res = await apiFetch('/api/desk/checkpoints', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticker }),
@@ -183,7 +186,7 @@ export function DeskLaunchForm() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch('/api/desk/runs', {
+      const res = await apiFetch('/api/desk/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -217,6 +220,10 @@ export function DeskLaunchForm() {
 
   return (
     <form onSubmit={onSubmit} className="rounded-lg border border-border bg-card p-4">
+      <p className="mb-3 text-xs text-muted-foreground">
+        Up to {DESK_POLICY[depth].minutes} minutes per ticker ({DESK_POLICY[depth].minutes * Math.max(1, tickers.length)} minutes for this batch).
+        {' '}Budget ceiling ${DESK_POLICY[depth].budgetUsd.toFixed(2)} per ticker; actual usage is shown with the report. One Desk batch runs at a time.
+      </p>
       <div className="space-y-4">
         <div>
           <div className="flex items-center justify-between gap-2">

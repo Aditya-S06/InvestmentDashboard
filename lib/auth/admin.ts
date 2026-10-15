@@ -10,8 +10,8 @@ export function getAdminEmails() {
 }
 
 
-export function isInsightsAdmin(email?: string | null, role?: string | null): boolean {
-  if (role === 'admin') return true;
+export function isInsightsAdmin(email?: string | null, _role?: string | null): boolean {
+  // Keep the role argument for private-bundle compatibility; only the allowlist grants access.
   const normalizedEmail = email?.trim().toLowerCase();
   return !!normalizedEmail && getAdminEmails().includes(normalizedEmail);
 }
@@ -31,9 +31,7 @@ export async function syncAdminRole(userId: string, email?: string | null): Prom
   }
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
-  // Only demote when ADMIN_EMAILS is actually configured, so a missing env var
-  // cannot silently strip the operator's own admin role.
-  if (user?.role === 'admin' && adminEmails.length > 0) {
+  if (user?.role === 'admin') {
     const demoted = await prisma.user.update({
       where: { id: userId },
       data: { role: 'user' },

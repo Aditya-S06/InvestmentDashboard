@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import bcrypt from 'bcryptjs';
 import type { User } from 'next-auth';
+import { consumeRateLimit } from './rate-limit';
 
 const userFindUnique = vi.fn();
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+vi.mock('@/lib/identity-db', () => ({
+  identityDb: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
 }));
 
 const { authOptions } = await import('../auth');
@@ -31,9 +32,21 @@ function authorize(credentials: { email?: string; password?: string } | undefine
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, remaining: 9, retryAfterSec: 60 });
 });
 
 describe('credentials authorize', () => {
+  it('fails closed before looking up a password if the shared limiter is unavailable', async () => {
+    vi.mocked(consumeRateLimit).mockRejectedValue(new Error('offline'));
+    await expect(authorize({ email: EMAIL, password: PASSWORD })).resolves.toBeNull();
+    expect(userFindUnique).not.toHaveBeenCalled();
+  });
+  it('enforces the broad limit even without trusted client IP headers', async () => {
+    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSec: 60 });
+    await expect(authorize({ email: EMAIL, password: PASSWORD })).resolves.toBeNull();
+    expect(consumeRateLimit).toHaveBeenCalledWith('login-ip:unknown', 30, 900000);
+    expect(userFindUnique).not.toHaveBeenCalled();
+  });
   it('returns null for an unknown user', async () => {
     userFindUnique.mockResolvedValue(null);
     await expect(authorize({ email: EMAIL, password: PASSWORD })).resolves.toBeNull();
@@ -44,7 +57,7 @@ describe('credentials authorize', () => {
     userFindUnique.mockResolvedValue({
       id: 'user-1',
       email: EMAIL,
-      name: 'Trader',
+      name: 'Trader', sessionVersion: 0,
       password: hash,
     });
     await expect(authorize({ email: EMAIL, password: 'wrong-password-xx' })).resolves.toBeNull();
@@ -55,13 +68,15 @@ describe('credentials authorize', () => {
     userFindUnique.mockResolvedValue({
       id: 'user-1',
       email: EMAIL,
-      name: 'Trader',
+      name: 'Trader', sessionVersion: 0,
       password: hash,
     });
     await expect(authorize({ email: EMAIL, password: PASSWORD })).resolves.toEqual({
       id: 'user-1',
       email: EMAIL,
-      name: 'Trader',
+      name: 'Trader', sessionVersion: 0,
     });
   });
 });
+
+vi.mock('@/lib/auth/rate-limit', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/auth/rate-limit')>(), consumeRateLimit: vi.fn(async () => ({ allowed: true, remaining: 9, retryAfterSec: 60 })) }));

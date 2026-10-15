@@ -1,5 +1,11 @@
 # Investment Dashboard
 
+**Identity hardening:** this version requires restricted runtime and identity database
+logins. Follow [identity and database operations](docs/identity-hardening.md) before
+starting it. Apply SQL migrations; `db push` alone is insufficient. Settings → Account
+security provides MFA, recovery codes, password changes and account deletion.
+Email-based reset and verification are deferred.
+
 A self-hosted financial intelligence dashboard for tracking equities and building a personal watchlist. Built for investors who want a consolidated view of price action, sentiment signals, risk metrics, and macro context—without relying on a proprietary hosted platform.
 
 Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via `yfinance`. Optional [Webull OpenAPI](https://developer.webull.com/) powers the admin broker panel, including separately gated order APIs with trading flags off by default. It is not used for dashboard pricing. User accounts, watchlists, paper trades, and settings are stored in **Supabase Postgres** (cloud). Docker Postgres is optional and no longer required.
@@ -132,8 +138,9 @@ change to access rights when modules are missing: imports/setup fail explicitly.
 Bundle integration: private access.ts should import and re-export
 `isInsightsAdmin` / `syncAdminRole` from `@/lib/auth/admin`, as shown in
 access.example.ts. This shared module normalizes ADMIN_EMAILS, promotes listed
-users, demotes removed admins only with a nonempty list, and preserves stored
-roles when the list is empty. Keep private key resolution unchanged: admins use
+users and demotes removed admins even with an empty list. Only the allowlist grants
+admin access; stored roles never override it. To recover access, restore the operator's
+email in ADMIN_EMAILS and restart the server. Keep private key resolution unchanged: admins use
 the server key only; nonadmins use their stored OpenRouter key. Missing keys
 remain 503 for admins and 403 for others. Desk re-exports this same access gate.
 
@@ -153,7 +160,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-**Development seed account** (created by seed): `john@doe.com` / `johndoe123`  
+**Development seed account** (only with explicit `SEED_DEMO_USER=true`): `john@doe.com` / `johndoe123`
 Change or remove this user before any production deployment. Set `SEED_DEMO_USER=false` before seeding a public instance. Keep `ALLOW_PUBLIC_SIGNUP=false` unless you intend open registration. See [SECURITY.md](SECURITY.md).
 
 ### NPM scripts
@@ -167,7 +174,7 @@ Change or remove this user before any production deployment. Set `SEED_DEMO_USER
 | `npm run db:down` | Stop local Postgres container |
 | `npm run db:push` | Apply Prisma schema (uses `DIRECT_URL`) |
 | `npm run db:seed` | Seed demo user and starter watchlist |
-| `npm run setup` | `prisma generate` + `db push` + `seed` |
+| `npm run setup` | Apply migrations, provision and verify restricted roles, activate runtime URLs, then opt-in seed |
 | `npm test` | Run Vitest (signup/login smoke + Webull order tests) |
 
 ### Optional: local Docker Postgres
@@ -176,31 +183,73 @@ Only if you are **not** using Supabase:
 
 ```bash
 npm run db:up
-# On a fresh isolated vanilla Postgres only, create migration prerequisite roles:
-docker exec market-intel-db psql -U postgres -d market_intel -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;"
-npx prisma migrate deploy
-npx prisma generate
-# Optional local demo seed:
-npm run db:seed
+# Supply the local operator URLs in .env or .env.migrations first.
+npm run setup
 ```
 
-The role creation above is for a fresh local database; skip roles that already exist.
-The Compose postgres superuser bypasses RLS. Production roles/grants need operator
-review, especially FORCE RLS tables. `npm run setup` / `db:push` use schema push,
-which does not execute migration RLS/revoke SQL. Do not treat them as migration deployment.
+Setup creates missing migration prerequisite roles, applies SQL migrations, verifies
+restricted logins, and activates the runtime URLs. Existing databases made by schema
+push require an operator-reviewed baseline first. `db:push` does not execute policy
+or grant SQL and must not replace migration deployment. Keep the Compose postgres
+superuser connection in `.env.migrations`, outside the service environment.
 
 ## Environment variables
 
+### Credential and request protection rollout
+
+Use the same keyring and NEXTAUTH_SECRET on every app instance. For an existing
+installation, stop old app processes before the backfill so they cannot write
+new plaintext keys. Never roll back to a plaintext-reading version after backfill.
+
+1. Apply `20261011000000_shared_auth_rate_limit` using your migration system.
+   Prisma-managed databases use `npx prisma migrate deploy`. Existing deployments
+   with only Supabase migration history can run `node scripts/apply-security-migration.cjs`;
+   it applies only this migration and records it atomically in that existing ledger.
+   It does not baseline or reconcile unrelated Prisma/Supabase schema differences.
+2. Complete [database and identity provisioning](docs/identity-hardening.md), including
+   the identity migration and `.env.migrations` operator file. Run
+   `npm run security:init-key` once on the operator host to generate a random
+   encryption key directly into `.env`, without displaying it. The command refuses
+   to replace an existing keyring. Back up this keyring outside database backups.
+   On other hosts, supply the same keyring through their secret configuration.
+3. Run `npm run security:encrypt-keys` to validate configuration and preview counts,
+   then `npm run security:encrypt-keys -- --apply` to backfill. This is resumable;
+   each write checks that the old value has not changed. It also supports rotation:
+   add a fresh key ID to the keyring, change the active ID, and rerun the command.
+   Keep old keys until all instances and backups no longer need them. Do not
+   reuse one key ID with different key bytes.
+4. Regenerate Prisma, rebuild and restart the app. Verify login, settings, watchlist,
+   journal/paper mutations, Desk actions and broker preview without placing a live
+   order. Custom API clients must send the signed CSRF token and exact Origin.
+5. Inspect the browser console during those flows with CSP in report-only mode.
+   Enable `CSP_ENFORCE=true` only after validating the relevant pages. Report-only
+   reports violations but does not block resources.
+
+`npx tsx --require ./scripts/operator-env.cjs scripts/verify-security-db.ts` checks concurrent
+limits, expiry, key decryption and Supabase API-role restrictions using a temporary
+synthetic limiter bucket that it removes. It does not call external providers.
+Key migration and verification commands print only counts/status, never keys.
+For a production HTTP smoke check, build with `NEXT_DIST_DIR=.next/security-check`
+then run `node scripts/security-http-smoke.cjs`. It temporarily listens on loopback
+port 3101, checks login-page nonces and signed-CSRF rejection/acceptance, and shuts
+itself down without signing in or placing an order.
+
+### Configuration reference
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | Supabase **pooler** URL (port `6543`, `pgbouncer=true`) |
-| `DIRECT_URL` | Yes | Supabase **session/direct** URL (port `5432`) for migrations/seed |
+| `DATABASE_URL` | Yes | Restricted `oracle_runtime` pooler URL |
+| `AUTH_DATABASE_URL` | Yes | Restricted `oracle_identity` pooler URL for login and identity operations |
+| `DIRECT_URL` | Yes | Restricted URL in app env; privileged session/direct URL only in `.env.migrations` |
 | `SUPABASE_URL` | Recommended | `https://<project-ref>.supabase.co` |
 | `NEXTAUTH_SECRET` | Yes | Random secret for session signing (production refuses the example placeholder) |
 | `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`) |
+| `API_KEY_ENCRYPTION_ACTIVE_KEY_ID` | For stored API keys and MFA | Active key ID, e.g. `primary` |
+| `API_KEY_ENCRYPTION_KEYS` | For stored API keys and MFA | JSON mapping key IDs to base64-encoded 32-byte keys; never public/client env |
+| `CSP_ENFORCE` | No | Default `false` (report-only); explicit `true` enforces the nonce policy |
 | `TRUST_PROXY` | No | Set `true` only when a reverse proxy overwrites `X-Forwarded-For`. Vercel is trusted automatically. |
 | `ALLOW_PUBLIC_SIGNUP` | No | Default `false`. Open registration is off unless set to `true`. |
-| `SEED_DEMO_USER` | No | Set `false` before a public deploy so seed does not create the demo account. |
+| `SEED_DEMO_USER` | No | Defaults off. Only explicit `true` creates the local demo account; keep `false` on exposed hosts. |
 | `OPENROUTER_API_KEY` | For admin Insights / YouTube summaries | Server OpenRouter key |
 | `ADMIN_EMAILS` | Recommended | Comma-separated admin emails |
 | `YOUTUBE_API_KEY` | For YouTube Analysis | Google Cloud YouTube Data API v3 key |

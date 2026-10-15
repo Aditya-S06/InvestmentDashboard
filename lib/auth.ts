@@ -1,7 +1,7 @@
 import { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { PrismaAdapter } from '@next-auth/prisma-adapter';
-import { prisma } from '@/lib/prisma';
+import { identityDb as prisma } from '@/lib/identity-db';
+import { consumeSecondFactor, currentSessionUser } from '@/lib/auth/identity';
 import bcrypt from 'bcryptjs';
 import {
   clientIpFromHeaders,
@@ -53,7 +53,6 @@ const useSecureCookies =
     !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/i.test(authUrl));
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     CredentialsProvider({
@@ -61,33 +60,35 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
+        code: { label: 'Authenticator or recovery code', type: 'text' },
       },
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
         const email = credentials.email.trim().toLowerCase();
         const ip = clientIpFromHeaders(req.headers);
-        if (ip !== 'unknown') {
-          const ipLimited = consumeRateLimit(
+        try {
+          const ipLimited = await consumeRateLimit(
             loginIpRateLimitKey(ip),
             LOGIN_IP_RATE_LIMIT,
             LOGIN_WINDOW_MS,
           );
           if (!ipLimited.allowed) return null;
-        }
-        const limited = consumeRateLimit(
-          loginRateLimitKey(ip, email),
-          LOGIN_RATE_LIMIT,
-          LOGIN_WINDOW_MS,
-        );
-        if (!limited.allowed) return null;
-        try {
+          const limited = await consumeRateLimit(
+            loginRateLimitKey(ip, email),
+            LOGIN_RATE_LIMIT,
+            LOGIN_WINDOW_MS,
+          );
+          if (!limited.allowed) return null;
+          const accountLimited = await consumeRateLimit(`login-email:${email}`, LOGIN_RATE_LIMIT, LOGIN_WINDOW_MS);
+          if (!accountLimited.allowed) return null;
           const user = await prisma.user.findUnique({ where: { email } });
           const isValid = await bcrypt.compare(
             credentials.password,
             user?.password || DUMMY_PASSWORD_HASH,
           );
-          if (!user?.password || !isValid) return null;
-          return { id: user.id, email: user.email, name: user.name };
+          if (!user?.password || !isValid || user.disabledAt) return null;
+          if (!await consumeSecondFactor(prisma, user, credentials.code || '')) return null;
+          return { id: user.id, email: user.email, name: user.name, sessionVersion: user.sessionVersion };
         } catch {
           return null;
         }
@@ -110,22 +111,15 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }: any) {
       if (user) {
         token.id = user.id;
+        token.sessionVersion = user.sessionVersion;
       }
       return token;
     },
     async session({ session, token }: any) {
-      if (session?.user) {
-        let userId = token.id as string | undefined;
-        if (!userId && session.user.email) {
-          const dbUser = await prisma.user.findUnique({
-            where: { email: session.user.email },
-            select: { id: true },
-          });
-          userId = dbUser?.id;
-        }
-        (session.user as any).id = userId;
-      }
-      return session;
+      const user = await currentSessionUser(token);
+      // Missing version rejects all pre-hardening JWTs. No fallback by email or token refresh.
+      if (!user) return { ...session, user: undefined };
+      return { ...session, user: { id: user.id, email: user.email, name: user.name, sessionVersion: user.sessionVersion } };
     },
   },
   pages: {

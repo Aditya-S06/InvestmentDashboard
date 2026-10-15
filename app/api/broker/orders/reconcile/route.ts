@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -9,7 +10,7 @@ import { writeBrokerAudit } from '@/lib/webull/audit';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireBrokerAdmin();
   if ('error' in auth) return auth.error;
   try {
@@ -70,3 +71,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(mapped.body, { status: mapped.status });
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

@@ -19,15 +19,23 @@ import time
 from desk_process import Lock, WindowsJob, atomic_json, graph_env, redact, safe_path
 
 TERMINAL = ('completed', 'review', 'failed', 'cancelled')
-BUDGETS = {'fast': 90, 'standard': 180, 'deep': 300}
+from desk_policy import BUDGETS
 INTERRUPTED = 'Desk supervisor interrupted; no automatic replay. Re-run with fresh authentication. Checkpoint resumability is not verified.'
-FIELDS = ('company_of_interest', 'trade_date', 'asset_type', 'market_report',
-          'sentiment_report', 'news_report', 'fundamentals_report', 'investment_plan',
+FIELDS = ('company_of_interest', 'trade_date', 'asset_type', 'final_rating', 'memory_note',
+          'market_report', 'sentiment_report', 'news_report', 'fundamentals_report', 'investment_plan',
           'trader_investment_plan', 'trader_investment_decision', 'final_trade_decision')
 NESTED = {
     'investment_debate_state': ('bull_history', 'bear_history', 'history', 'current_response', 'judge_decision', 'count'),
     'risk_debate_state': ('aggressive_history', 'conservative_history', 'neutral_history', 'history', 'latest_speaker', 'judge_decision', 'count'),
 }
+# Explicit safe projection of upstream run_settings(): scalars and vendor-name
+# maps only. Endpoints, keys and local paths are never recorded (upstream
+# allowlists the same way); unknown keys are dropped, never passed through.
+RUN_SETTINGS_FIELDS = ('version', 'llm_provider', 'deep_think_provider', 'deep_think_llm',
+                       'quick_think_provider', 'quick_think_llm', 'max_debate_rounds',
+                       'max_risk_discuss_rounds', 'output_language', 'desk_policy_version', 'max_tool_rounds')
+RUN_SETTINGS_LIST_FIELDS = ('analysts',)
+RUN_SETTINGS_MAP_FIELDS = ('data_vendors', 'tool_vendors')
 
 
 def now():
@@ -113,6 +121,7 @@ def state_at(directory, m):
             raise ValueError('Invalid state')
         # Also cover death between receipt replacement and state replacement.
         recover_receipts(directory, m, s)
+        attach_usage(directory, s)
         return s
     except (OSError, ValueError, KeyError, TypeError):
         s = empty(m)
@@ -124,8 +133,53 @@ def state_at(directory, m):
 
 
 def save(directory, s):
+    attach_usage(directory, s)
     s['revision'] = max(s['revision'] + 1, time.time_ns() // 1_000_000)
     atomic_json(directory / 'state.json', s)
+
+
+def curate_usage(value):
+    from desk_runtime import number
+    if not isinstance(value, dict):
+        return None
+    result = {k: number(value.get(k)) for k in
+              ('policy_version', 'budget_usd', 'spent_usd', 'reserved_usd')}
+    reason = value.get('stop_reason')
+    result['stop_reason'] = reason[:160] if isinstance(reason, str) else None
+    for group, text_fields, numeric_fields in (
+        ('attempts', ('tier', 'node', 'status'), ('reserved_usd', 'elapsed_ms', 'input_tokens',
+          'output_tokens', 'reasoning_tokens', 'cached_tokens', 'cost_usd')),
+        ('tools', ('name', 'node', 'status'), ('elapsed_ms',)),
+    ):
+        rows = value.get(group, [])
+        result[group] = []
+        for row in rows[:160] if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            clean = {k: row[k][:100] for k in text_fields if isinstance(row.get(k), str)}
+            clean.update({k: number(row.get(k)) for k in numeric_fields})
+            if group == 'tools':
+                clean['cached'] = row.get('cached') is True
+            result[group].append(clean)
+    return result
+
+
+def attach_usage(directory, state):
+    # Small numeric-only snapshots survive timeout, cancellation and app restart.
+    for row in state['results']:
+        try:
+            path = safe_path(directory / f'usage-{row["ticker"]}.json')
+            if not path.is_file():
+                continue
+            value = read(path)
+            usage = curate_usage(value.get('desk_usage'))
+            if usage:
+                row['finalState'] = {**(row.get('finalState') or {}), 'desk_usage': usage,
+                                    'run_settings': {**((row.get('finalState') or {}).get('run_settings') or {}),
+                                        **curate_run_settings(value.get('run_settings'))}}
+                state['revision'] = max(state['revision'], path.stat().st_mtime_ns // 1_000_000)
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
 
 
 class StateWatch:
@@ -248,6 +302,23 @@ def pump(stream, destination, errors):
         stream.close()
 
 
+def curate_run_settings(value):
+    if not isinstance(value, dict):
+        return {}
+    curated = {}
+    for field in RUN_SETTINGS_FIELDS:
+        if isinstance(value.get(field), (str, int, float, bool)) or value.get(field) is None:
+            curated[field] = value.get(field)
+    for field in RUN_SETTINGS_LIST_FIELDS:
+        if isinstance(value.get(field), list) and all(isinstance(item, str) for item in value[field]):
+            curated[field] = list(value[field])
+    for field in RUN_SETTINGS_MAP_FIELDS:
+        if isinstance(value.get(field), dict) and all(
+                isinstance(k, str) and isinstance(v, str) for k, v in value[field].items()):
+            curated[field] = dict(value[field])
+    return curated
+
+
 def ticker_output(file, ticker, as_of):
     payload = read(file)
     source = payload['finalState']
@@ -258,6 +329,9 @@ def ticker_output(file, ticker, as_of):
         if isinstance(source.get(key), dict):
             state[key] = {k: v for k, v in source[key].items() if k in fields and
                           (isinstance(v, str) or (k == 'count' and isinstance(v, (int, float))))}
+    run_settings = curate_run_settings(payload.get('runSettings'))
+    if run_settings:
+        state['run_settings'] = run_settings
     if (not state or state.get('company_of_interest', ticker) != ticker or
             state.get('trade_date', as_of) != as_of):
         raise ValueError('Mismatched ticker result')

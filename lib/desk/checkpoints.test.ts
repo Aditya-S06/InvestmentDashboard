@@ -1,7 +1,8 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { CsrfRequest as NextRequest, installCsrfFixture } from '../../test/csrf-fixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deskResumeInput, type DeskSavedCheckpoint } from './types';
 
@@ -119,3 +120,5 @@ describe('real keyless checkpoint lease bridge', () => {
     expect(result).toEqual({ ticker: 'AAPL', deleted: false });
   }, 15000);
 });
+
+beforeEach(installCsrfFixture);

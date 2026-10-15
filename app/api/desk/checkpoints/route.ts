@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function DELETE(req: NextRequest) {
+async function DELETEHandler(req: NextRequest) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
   const body = await req.json().catch(() => null);
@@ -51,3 +52,5 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: error instanceof DeskCheckpointConflict ? error.message : 'Checkpoint clear unavailable; retry.' }, { status: error instanceof DeskCheckpointConflict ? 409 : 503 });
   }
 }
+
+export const DELETE = withMutationProtection(DELETEHandler);

@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
@@ -110,9 +112,9 @@ export function PersonalJournalClient() {
     setError(null);
     try {
       const [tradesRes, analyticsRes, reviewsRes] = await Promise.all([
-        fetch('/api/journal/trades?limit=100', { cache: 'no-store' }),
-        fetch('/api/journal/analytics', { cache: 'no-store' }),
-        fetch('/api/journal/reviews', { cache: 'no-store' }),
+        apiFetch('/api/journal/trades?limit=100', { cache: 'no-store' }),
+        apiFetch('/api/journal/analytics', { cache: 'no-store' }),
+        apiFetch('/api/journal/reviews', { cache: 'no-store' }),
       ]);
       const [tradesData, analyticsData, reviewsData] = await Promise.all([
         readJson(tradesRes),
@@ -179,7 +181,7 @@ export function PersonalJournalClient() {
         preNotes: form.preNotes || undefined,
         postNotes: form.postNotes || undefined,
       };
-      const response = await fetch('/api/journal/trades', {
+      const response = await apiFetch('/api/journal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -200,7 +202,7 @@ export function PersonalJournalClient() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/journal/trades/${selected.id}`, {
+      const response = await apiFetch(`/api/journal/trades/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -230,7 +232,7 @@ export function PersonalJournalClient() {
     if (exitPrice == null || !exitPrice.trim()) return;
     setSaving(true);
     try {
-      const response = await fetch(`/api/journal/trades/${selected.id}`, {
+      const response = await apiFetch(`/api/journal/trades/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'CLOSED', exitPrice, closedAt: new Date().toISOString() }),
@@ -249,7 +251,7 @@ export function PersonalJournalClient() {
   const deleteSelected = async () => {
     if (!selected) return;
     if (!window.confirm(`Delete ${selected.symbol} journal entry?`)) return;
-    const response = await fetch(`/api/journal/trades/${selected.id}`, { method: 'DELETE' });
+    const response = await apiFetch(`/api/journal/trades/${selected.id}`, { method: 'DELETE' });
     await readJson(response);
     setSelected(null);
     await loadData(true);
@@ -259,7 +261,7 @@ export function PersonalJournalClient() {
     setSavingReview(true);
     setError(null);
     try {
-      const response = await fetch('/api/journal/reviews', {
+      const response = await apiFetch('/api/journal/reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

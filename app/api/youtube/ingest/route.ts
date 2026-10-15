@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -18,7 +19,7 @@ import { prisma } from '@/lib/prisma';
  * - { url | videoId } → fetch + auto transcript + summarize
  * - { url | videoId, transcript } → summarize with pasted transcript
  */
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireAdmin();
   if ('error' in auth) return auth.error;
 
@@ -163,3 +164,5 @@ export async function POST(req: NextRequest) {
     return serverError('youtube/ingest', error, 'Video ingest failed');
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

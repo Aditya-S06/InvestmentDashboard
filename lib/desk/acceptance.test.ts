@@ -6,7 +6,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { ChildProcess } from 'child_process';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { CsrfRequest as NextRequest, installCsrfFixture } from '../../test/csrf-fixture';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { connectDeskStream, readDeskEventStream } from './stream-client';
 import { emptyDeskLiveState, reduceDeskStream } from './stream-state';
@@ -373,3 +374,5 @@ it('checkpoint fixture exits when its parent pipe lease closes', async () => {
   await exited(fixture);
   expect(fixture.exitCode).toBe(75);
 }, 65000);
+
+beforeEach(installCsrfFixture);

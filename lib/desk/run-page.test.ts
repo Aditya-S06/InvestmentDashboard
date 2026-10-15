@@ -156,3 +156,5 @@ it('a successful cancellation request that lost the completion race preserves th
   expect(render().find(node => node.type === DeskRunTimeline).props.runStatus).toBe('completed');
   expect(button()).toBeUndefined();
 });
+
+vi.mock('@/lib/http/api-fetch', () => ({ apiFetch: (...args: Parameters<typeof fetch>) => fetch(...args) }));

@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,7 +25,7 @@ export async function GET() {
   );
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireInsightsAccess();
   if (auth instanceof NextResponse) return auth;
 
@@ -43,3 +44,5 @@ export async function POST(req: NextRequest) {
     updatedAt: session.updatedAt.toISOString(),
   });
 }
+
+export const POST = withMutationProtection(POSTHandler);

@@ -6,6 +6,7 @@ import 'server-only';
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { readApiKey } from '@/lib/security/api-key-store';
 import { authOptions } from '@/lib/auth';
 import { isInsightsAdmin, syncAdminRole } from '@/lib/auth/admin';
 export { isInsightsAdmin, syncAdminRole } from '@/lib/auth/admin';
@@ -22,11 +23,12 @@ export async function resolveOpenRouterKey(
   email?: string | null,
   role?: string | null,
 ): Promise<ResolvedOpenRouterKey | null> {
-  // TODO: admin → process.env.OPENROUTER_API_KEY; others → ApiKey table (provider: openrouter)
-  void userId;
-  void email;
-  void role;
-  return null;
+  if (isInsightsAdmin(email, role)) {
+    const key = process.env.OPENROUTER_API_KEY?.trim();
+    return key ? { key, source: 'admin' } : null;
+  }
+  const key = await readApiKey(userId, 'openrouter');
+  return key ? { key, source: 'user' } : null;
 }
 
 export function canUseAdminInsights(email?: string | null, role?: string | null) {

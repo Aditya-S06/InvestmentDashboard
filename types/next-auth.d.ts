@@ -5,6 +5,7 @@ declare module 'next-auth' {
   interface Session {
     user: {
       id: string;
+      sessionVersion: number;
       role?: string;
       // Add custom fields here
     } & DefaultSession['user']; // includes name, email, image
@@ -12,6 +13,7 @@ declare module 'next-auth' {
 
   interface User extends DefaultUser {
     id: string;
+    sessionVersion?: number;
     role?: string;
     // Mirror any fields added to Session['user'] above
   }
@@ -20,6 +22,7 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
   interface JWT {
     id: string;
+    sessionVersion?: number;
     role?: string;
   }
 }

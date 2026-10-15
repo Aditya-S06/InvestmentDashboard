@@ -38,11 +38,10 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 }
 
-Write-Host "==> Prisma generate + db push + seed..." -ForegroundColor Cyan
-npx prisma generate
-npx prisma db push
-npx prisma db seed
+Write-Host "==> Apply database migrations and provision restricted logins..." -ForegroundColor Cyan
+npm run setup
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
 Write-Host "Setup complete. Run: npm run dev" -ForegroundColor Green
-Write-Host "Login: john@doe.com / johndoe123" -ForegroundColor Green
+Write-Host "Demo seeding defaults off. For local demo use only, set SEED_DEMO_USER=true and run npm run db:seed." -ForegroundColor Green

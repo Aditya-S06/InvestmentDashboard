@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -28,7 +29,7 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+async function PATCHHandler(request: Request, context: RouteContext) {
   const userId = await requireJournalUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -107,7 +108,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+async function DELETEHandler(_request: Request, context: RouteContext) {
   const userId = await requireJournalUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -119,3 +120,6 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return journalError(error);
   }
 }
+
+export const PATCH = withMutationProtection(PATCHHandler);
+export const DELETE = withMutationProtection(DELETEHandler);

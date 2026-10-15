@@ -16,16 +16,20 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from desk_checkpoint import (CONFIG_FIELDS, assert_idle, clear, graph_use, identity,
+from desk_checkpoint import (CONFIG_FIELDS, DEFAULT_OPENROUTER_BASE_URL, assert_idle, clear,
+                             compute_thread_id, effective_config, graph_use,
                              inspect_saved, inspection_workflow, listed, paths, remember, restore, upstream)
 from desk_process import Lock, atomic_json
 from desk_supervisor import empty
 from subprocess_env import runtime_env
 
 VALUE = dict(ticker='AAPL', asOf='2026-10-01', depth='fast', analysts=['market'], assetType='stock')
-CONFIG = dict(deep_think_llm='fixture-deep', quick_think_llm='fixture-quick', output_language='French',
+CONFIG = dict(desk_policy_version=1, max_tool_rounds=3, deep_think_llm='fixture-deep', quick_think_llm='fixture-quick', output_language='French',
               benchmark_ticker='SPY', temperature=0.2, llm_max_retries=2, max_tokens=1000,
               api_key='NEVER_SAVE', backend_url='https://user:secret@invalid')
+# Validated non-secret restore settings shared by every fixture checkpoint.
+SETTINGS = {k: CONFIG[k] for k in CONFIG_FIELDS}
+BACKEND_URL = DEFAULT_OPENROUTER_BASE_URL
 
 
 class CheckpointTests(unittest.TestCase):
@@ -58,9 +62,9 @@ class CheckpointTests(unittest.TestCase):
     def checkpoint(self, value=None):
         value = value or VALUE
         from tradingagents.graph.checkpointer import get_checkpointer
-        remember(self.user, value, CONFIG)
+        remember(self.user, value, CONFIG, BACKEND_URL)
         workflow = inspection_workflow(value)
-        config = {'configurable': {'thread_id': identity(value)}}
+        config = {'configurable': {'thread_id': compute_thread_id(value, SETTINGS, BACKEND_URL)}}
         with get_checkpointer(self.user / 'cache', value['ticker']) as saver:
             graph = workflow.compile(checkpointer=saver, interrupt_before=['Market Analyst'])
             graph.invoke({'company_of_interest': value['ticker'], 'trade_date': value['asOf'],
@@ -74,8 +78,11 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(restore(self.user, saved, VALUE), {k: CONFIG[k] for k in CONFIG_FIELDS})
         graph_type, _ = upstream()
         graph = graph_type.__new__(graph_type)
-        graph.config = dict(data_cache_dir=str(self.user / 'cache'), checkpoint_enabled=True,
-                            max_debate_rounds=1, max_risk_discuss_rounds=1)
+        # The fake graph carries the exact effective config, so its opaque
+        # signature reproduces the fixture thread; a partial config cannot.
+        # data_cache_dir selects the database but is excluded from the signature.
+        graph.config = {**effective_config(VALUE, SETTINGS, BACKEND_URL),
+                        'data_cache_dir': str(self.user / 'cache')}
         graph.selected_analysts = ('market',)
         workflow = inspection_workflow(VALUE)
         from langchain_core.runnables import RunnableLambda
@@ -101,8 +108,11 @@ class CheckpointTests(unittest.TestCase):
         from tradingagents.graph.checkpointer import clear_checkpoint
         graph_type, _ = upstream()
         from types import SimpleNamespace
-        signature = graph_type._run_signature(SimpleNamespace(selected_analysts=('market',), config={
-            'max_debate_rounds': 1, 'max_risk_discuss_rounds': 1}), 'stock')
+        # The signature must come from the effective config; a partial config
+        # cannot reproduce the recorded thread (that is the WP3 guarantee).
+        signature = graph_type._run_signature(SimpleNamespace(
+            selected_analysts=('market',),
+            config=effective_config(VALUE, SETTINGS, BACKEND_URL)), 'stock')
         clear_checkpoint(self.user / 'cache', 'AAPL', VALUE['asOf'], signature)
         self.assertTrue((self.user / 'cache/checkpoints/AAPL.db').exists())
         self.assertEqual(listed(self.user, ['AAPL'])[0]['checkpoints'], [])
@@ -118,12 +128,15 @@ class CheckpointTests(unittest.TestCase):
         captured = []
         def build(**kwargs):
             captured.append(kwargs)
-            return SimpleNamespace(propagator=SimpleNamespace(get_graph_args=lambda **kw: {}),
+            return SimpleNamespace(desk_clients=[], propagator=SimpleNamespace(get_graph_args=lambda **kw: {}),
+                                   run_settings=lambda: {'version': '0.6.0'},
                                    propagate=lambda *args: ({'company_of_interest': 'AAPL'}, 'Hold'))
         args = ['--ticker', 'AAPL', '--as-of', VALUE['asOf'], '--depth', 'fast', '--analysts', 'market',
                 '--checkpoint', 'true', '--results-dir', str(directory), '--data-cache-dir', str(self.user / 'cache'),
                 '--memory-log-path', str(self.user / 'trading_memory.md'), '--out', str(directory / 'out.json')]
         with ExitStack() as stack:
+            import time
+            atomic_json(directory / 'state.json', {'deadline': time.time() + 300})
             stack.enter_context(patch.dict(os.environ, {'OPENROUTER_API_KEY': 'fresh-sentinel-key',
                                 'DESK_DEEP_MODEL': 'new-default', 'DESK_QUICK_MODEL': 'new-default'}))
             stack.enter_context(patch.object(runner, 'TradingAgentsGraph', side_effect=build))
@@ -149,7 +162,8 @@ class CheckpointTests(unittest.TestCase):
         for change in ({'asOf': '2026-10-02'}, {'assetType': 'crypto'}, {'analysts': ['market', 'news']}, {'depth': 'deep'}):
             with self.subTest(change=change):
                 wrong = {**VALUE, **change}
-                self.assertNotEqual(identity(wrong), identity(VALUE))
+                self.assertNotEqual(compute_thread_id(wrong, SETTINGS, BACKEND_URL),
+                                    compute_thread_id(VALUE, SETTINGS, BACKEND_URL))
                 self.assertIsNone(inspect_saved(self.user, wrong))
                 with self.assertRaisesRegex(ValueError, 'settings differ'):
                     restore(self.user, saved, wrong)
@@ -158,7 +172,7 @@ class CheckpointTests(unittest.TestCase):
 
     def test_empty_corrupt_missing_settings_and_other_user(self):
         directory, db = paths(self.user, 'AAPL')
-        remember(self.user, VALUE, CONFIG)
+        remember(self.user, VALUE, CONFIG, BACKEND_URL)
         sqlite3.connect(db).close()
         self.assertEqual(listed(self.user, ['AAPL'])[0]['checkpoints'], [])
         db.write_bytes(b'corrupt sqlite')

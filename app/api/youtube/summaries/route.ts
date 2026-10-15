@@ -1,13 +1,13 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { requireUser } from '@/lib/auth/require-user';
+import { requireAdmin } from '@/lib/auth/require-admin';
 import { serverError } from '@/lib/http/errors';
 import { listYoutubeSummaries } from '@/lib/youtube/db';
 
 export async function GET(req: NextRequest) {
-  const auth = await requireUser();
-  if (auth instanceof NextResponse) return auth;
+  const auth = await requireAdmin();
+  if ('error' in auth) return auth.error;
 
   try {
     const sp = req.nextUrl.searchParams;

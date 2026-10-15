@@ -120,6 +120,14 @@ export function DeskRunTimeline({
                   </span>
                 );
               })}
+            {item.id === 'analysts' &&
+              (agentStatus.memory !== undefined || tone === 'active') && (
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] ${chipClass(agentStatus.memory ?? 'idle', tone === 'active')}`}
+                >
+                  Memory log
+                </span>
+              )}
             {item.id === 'debate' && (
               <span className="text-[11px] text-muted-foreground">
                 {debateRound != null ? `Round ${debateRound}${debateSide ? ` · ${debateSide}` : ''}` : '—'}

@@ -20,8 +20,14 @@ from desk_supervisor import alive, control, manifest_at, read
 
 ORDER = ('market', 'social', 'news', 'fundamentals')
 ROUNDS = {'fast': 1, 'standard': 3, 'deep': 5}
-CONFIG_FIELDS = ('deep_think_llm', 'quick_think_llm', 'output_language',
+CONFIG_FIELDS = ('desk_policy_version', 'max_tool_rounds', 'deep_think_llm', 'quick_think_llm', 'output_language',
                  'benchmark_ticker', 'temperature', 'llm_max_retries', 'max_tokens')
+
+# Pinned upstream identity for every sidecar written by this module.
+UPSTREAM_VERSION = '0.6.0'
+UPSTREAM_SHA = '1394a3f72aa4393e1a98f51b382434c4b4c2d972'
+UPSTREAM_TOPOLOGY = ('analysts=parallel', 'memory=parallel')
+DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
 
 class CheckpointNotFound(ValueError):
@@ -61,45 +67,123 @@ def upstream():
     import dotenv
     dotenv.load_dotenv = lambda *a, **kw: False
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'TradingAgents'))
+    import tradingagents
+    if getattr(tradingagents, '__version__', None) != UPSTREAM_VERSION:
+        raise RuntimeError(
+            f'Desk checkpoint adapter pins tradingagents {UPSTREAM_VERSION}, '
+            f'found {getattr(tradingagents, "__version__", None)!r}')
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.graph.checkpointer import thread_id
     return TradingAgentsGraph, thread_id
 
 
-def identity(value):
+def backend_url_for(environ):
+    return (environ.get('OPENROUTER_BASE_URL', '').strip()
+            or DEFAULT_OPENROUTER_BASE_URL)
+
+
+def effective_config(value, graph_settings, backend_url, checkpoint=True):
+    """The exact config dict execution would use, for signature purposes.
+
+    One builder for execution-time recording and keyless restore validation:
+    DEFAULT_CONFIG plus the runner's fixed OpenRouter choices, depth rounds,
+    the validated non-secret model settings, and path/checkpoint flags (the
+    signature ignores paths, checkpointing and retry counts). Never includes
+    credentials: only ``backend_url`` (an endpoint, also allowlisted by
+    upstream's own ``run_settings``) travels with it, and it is never persisted.
+    """
+    from tradingagents.default_config import DEFAULT_CONFIG
+    config = dict(DEFAULT_CONFIG)
+    from desk_policy import config_policy
+    config.update(config_policy(value['depth']))
+    config.update({
+        'llm_provider': 'openrouter',
+        'backend_url': backend_url,
+        'max_debate_rounds': ROUNDS[value['depth']],
+        'max_risk_discuss_rounds': ROUNDS[value['depth']],
+        'checkpoint_enabled': bool(checkpoint),
+    })
+    config.update(graph_settings)
+    return config
+
+
+def compute_thread_id(value, graph_settings, backend_url):
+    """Opaque resume thread for validated settings via the pinned implementation.
+
+    Calls upstream ``_run_signature`` unbound on the effective config: no
+    copied hash algorithm, and every effective setting (models, endpoints,
+    vendors, limits) participates. Paths and retry counts are excluded by
+    upstream itself.
+    """
     graph_type, thread_id = upstream()
     value = settings(value)
-    shape = SimpleNamespace(selected_analysts=tuple(value['analysts']), config={
-        'max_debate_rounds': ROUNDS[value['depth']], 'max_risk_discuss_rounds': ROUNDS[value['depth']]})
-    # Call the pinned implementation; no copied signature/hash algorithm.
-    signature = graph_type._run_signature(shape, value['assetType'])
+    namespace = SimpleNamespace(
+        selected_analysts=tuple(value['analysts']),
+        config=effective_config(value, graph_settings, backend_url))
+    signature = graph_type._run_signature(namespace, value['assetType'])
     return thread_id(value['ticker'], value['asOf'], signature)
+
+
+def identity(value):
+    raise RuntimeError(
+        'identity() was replaced by compute_thread_id(); pass explicit '
+        'graph settings and backend URL so listing and execution agree')
 
 
 def inspection_workflow(value):
     graph_type, _ = upstream()
+    from tradingagents.default_config import DEFAULT_CONFIG
     from tradingagents.graph.setup import GraphSetup
     from tradingagents.graph.conditional_logic import ConditionalLogic
     # Upstream factories capture LLMs in node closures. get_state never invokes
     # nodes, so inspection needs neither provider clients nor credentials.
-    tools = graph_type._create_tool_nodes(None)
+    # Memory runs as a no-op: listing must see the same Memory Log topology as
+    # execution without settling anything or touching the log.
     rounds = ROUNDS[value['depth']]
-    return GraphSetup(None, None, tools, ConditionalLogic(rounds, rounds)).setup_graph(value['analysts'])
+    setup = GraphSetup(None, None, ConditionalLogic(rounds, rounds),
+                       DEFAULT_CONFIG['max_tool_rounds'])
+    return setup.setup_graph(value['analysts'],
+                             memory_node=lambda state: {'past_context': '', 'memory_note': ''})
 
 
-def inspect_saved(user, value):
-    value = settings(value)
-    _, db = paths(user, value['ticker'])
-    if not db.is_file():
-        return None
-    tid = identity(value)
+def directory_settings_path(user, ticker):
+    directory, _ = paths(user, ticker)
+    return safe_path(directory / f'{ticker}.settings.json')
+
+
+def sidecars(user, ticker):
+    """All persisted checkpoint sidecars for a ticker: {threadId: entry}."""
+    try:
+        saved = read(directory_settings_path(user, ticker))
+    except FileNotFoundError:
+        return {}
+    return saved if isinstance(saved, dict) else {}
+
+
+def _entry_settings(entry):
+    return settings({k: entry[k] for k in ('ticker', 'asOf', 'depth', 'assetType', 'analysts')})
+
+
+def _current_version(entry):
+    upstream = entry.get('upstream') if isinstance(entry, dict) else None
+    return (isinstance(upstream, dict) and upstream.get('version') == UPSTREAM_VERSION
+            and upstream.get('sha') == UPSTREAM_SHA)
+
+
+def _inspect_thread(db, value, tid):
+    import sqlite3
+
     from langgraph.checkpoint.sqlite import SqliteSaver
     # Read-only connection: listing cannot create schema/rows or repair corruption.
     with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, check_same_thread=False)) as connection:
         saver = SqliteSaver(connection)
         saver.is_setup = True  # schema belongs exclusively to upstream's writer
         config = {'configurable': {'thread_id': tid}}
-        cp = saver.get_tuple(config)
+        try:
+            cp = saver.get_tuple(config)
+        except sqlite3.OperationalError:
+            # Fresh/empty database without checkpoint tables: no state, not corruption.
+            return None
         if cp is None or cp.metadata.get('step') is None:
             return None
         snapshot = inspection_workflow(value).compile(checkpointer=saver).get_state(config)
@@ -108,21 +192,58 @@ def inspect_saved(user, value):
         return dict(**value, threadId=tid, checkpointId=cp.checkpoint['id'], step=cp.metadata['step'])
 
 
-def remember(user, value, config):
+def inspect_saved(user, value, thread_id=None):
+    """Unfinished thread state for validated settings, or None.
+
+    With an explicit thread_id, inspects exactly that thread. Without one
+    (the launch-time resumable check), inspects each matching current-version
+    sidecar and returns the first unfinished thread. Keyless: endpoint
+    differences fail closed by skipping non-reproducible candidates.
+    """
     value = settings(value)
-    directory, _ = paths(user, value['ticker'])
-    tid = identity(value)
-    destination = safe_path(directory / f'{value["ticker"]}.settings.json')
-    try:
-        saved = read(destination)
-    except FileNotFoundError:
-        saved = {}
-    # Persist only these explicit non-secret choices; no URLs, keys or env dump.
-    saved[tid] = {**value, 'graphSettings': {k: config.get(k) for k in CONFIG_FIELDS}}
-    atomic_json(destination, saved)
+    _, db = paths(user, value['ticker'])
+    if not db.is_file():
+        return None
+    if thread_id is None:
+        candidates = []
+        for tid, entry in sidecars(user, value['ticker']).items():
+            if not isinstance(entry, dict) or not _current_version(entry):
+                continue
+            try:
+                if _entry_settings(entry) != value:
+                    continue
+                graph_settings(entry)
+                if compute_thread_id(value, entry['graphSettings'], DEFAULT_OPENROUTER_BASE_URL) != tid:
+                    continue
+            except (ValueError, KeyError, TypeError):
+                continue
+            candidates.append(tid)
+    else:
+        candidates = [thread_id]
+    for tid in candidates:
+        found = _inspect_thread(db, value, tid)
+        if found:
+            return found
+    return None
+
+
+def remember(user, value, config, backend_url):
+    value = settings(value)
+    graph_settings_value = {k: config.get(k) for k in CONFIG_FIELDS}
+    graph_settings({'graphSettings': graph_settings_value})
+    tid = compute_thread_id(value, graph_settings_value, backend_url)
+    saved = sidecars(user, value['ticker'])
+    # Persist only these explicit non-secret choices plus version/topology
+    # markers. No URLs, keys, or full configuration are ever serialized.
+    saved[tid] = {**value, 'graphSettings': graph_settings_value, 'upstream': {
+        'version': UPSTREAM_VERSION, 'sha': UPSTREAM_SHA, 'topology': list(UPSTREAM_TOPOLOGY)}}
+    atomic_json(directory_settings_path(user, value['ticker']), saved)
 
 
 def graph_settings(saved):
+    from desk_policy import VERSION
+    if saved.get('graphSettings', {}).get('desk_policy_version') != VERSION:
+        raise ValueError('Checkpoint uses an older Desk budget policy; start a fresh run.')
     values = {k: saved['graphSettings'][k] for k in CONFIG_FIELDS}
     if any(v is not None and (isinstance(v, bool) or not isinstance(v, (str, int, float))) for v in values.values()):
         raise ValueError('Invalid saved graph settings')
@@ -145,15 +266,26 @@ def listed(user, tickers):
             output.append(item)
             continue
         try:
-            saved = read(directory / f'{ticker}.settings.json') if db.exists() else {}
-            for tid, value in saved.items():
-                if value['ticker'] != ticker or identity(value) != tid:
+            saved = sidecars(user, ticker) if db.exists() else {}
+            for tid, entry in saved.items():
+                if not isinstance(entry, dict) or entry.get('ticker') != ticker:
                     raise ValueError('Mismatched metadata')
-                graph_settings(value)
-                found = inspect_saved(user, value)
+                if not _current_version(entry):
+                    # Explicit incompatible-version reason, never a silent empty.
+                    seen = (entry.get('upstream') or {}).get('version', 'pre-0.6') \
+                        if isinstance(entry.get('upstream'), dict) else 'pre-0.6'
+                    item['reason'] = (
+                        f'Checkpoint saved under TradingAgents {seen}; resume requires '
+                        f'the v{UPSTREAM_VERSION} epoch. Clear it or finish it on the old pin.')
+                    continue
+                value = _entry_settings(entry)
+                graph_settings(entry)
+                if compute_thread_id(value, entry['graphSettings'], DEFAULT_OPENROUTER_BASE_URL) != tid:
+                    raise ValueError('Mismatched metadata')
+                found = inspect_saved(user, value, tid)
                 if found:
                     item['checkpoints'].append(found)
-            if db.exists() and not item['checkpoints']:
+            if db.exists() and not item['checkpoints'] and item['reason'] is None:
                 item['reason'] = 'No matching unfinished state with saved settings. Completed or empty databases cannot resume.'
         except Exception:
             item['checkpoints'] = []
@@ -162,17 +294,31 @@ def listed(user, tickers):
     return output
 
 
+def verify_thread(value, graph_settings_value, backend_url, thread_id):
+    """Fail closed unless the live effective config reproduces the reference thread.
+
+    Called at execution time after restore: model, endpoint, vendor or limit
+    drift since listing refuses the resume instead of continuing foreign state.
+    """
+    if compute_thread_id(value, graph_settings_value, backend_url) != thread_id:
+        raise ValueError(
+            'Run settings changed since the checkpoint was listed '
+            '(model, endpoint, vendor or limit); resume refused.')
+
+
 def restore(user, reference, requested):
     ticker = ticker_value(reference['ticker'])
-    directory, _ = paths(user, ticker)
     try:
-        saved = read(directory / f'{ticker}.settings.json')[reference['threadId']]
-    except (FileNotFoundError, KeyError):
+        saved = sidecars(user, ticker)[reference['threadId']]
+    except KeyError:
         raise CheckpointNotFound('Saved checkpoint not found') from None
-    found = inspect_saved(user, saved)
+    if not isinstance(saved, dict) or not _current_version(saved):
+        raise ValueError(
+            f'Checkpoint was saved under an older TradingAgents epoch; resume requires v{UPSTREAM_VERSION}.')
+    found = inspect_saved(user, _entry_settings(saved), reference['threadId'])
     if not found or any(found[k] != reference[k] for k in ('threadId', 'checkpointId')):
         raise ValueError('Checkpoint changed or is no longer resumable; refresh saved checkpoints.')
-    if settings(requested) != settings(saved):
+    if settings(requested) != _entry_settings(saved):
         raise ValueError('Resume settings differ: restore the saved ticker, date, asset, analysts and depth.')
     return graph_settings(saved)
 

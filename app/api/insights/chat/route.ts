@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -13,7 +14,7 @@ import { runInsightChat, type InsightStreamEvent } from '@/lib/insights/orchestr
 import type { InsightImageAttachment } from '@/lib/insights/types';
 import { prisma } from '@/lib/prisma';
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireInsightsAccess();
   if (auth instanceof NextResponse) return auth;
 
@@ -176,3 +177,5 @@ function titleFromMessage(message: string) {
   const title = message.trim().split(/\s+/).slice(0, 8).join(' ');
   return title.length > 80 ? `${title.slice(0, 77)}...` : title || 'New insight chat';
 }
+
+export const POST = withMutationProtection(POSTHandler);

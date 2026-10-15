@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useEffect, useMemo, useState } from 'react';
 import { Calculator, Loader2, ShieldCheck, X } from 'lucide-react';
 import type { MarketPrefill, PaperAccount, PaperTrade, TradeSide } from './paper-types';
@@ -47,7 +49,7 @@ export function TradePlanModal({ open, initialSymbol = '', initialThesis = '', o
     setSymbol(initialSymbol.toUpperCase());
     setThesis(initialThesis);
     setError(null);
-    void fetch('/api/paper/account', { cache: 'no-store' })
+    void apiFetch('/api/paper/account', { cache: 'no-store' })
       .then((response) => response.ok ? response.json() : null)
       .then((data) => data && setAccount(unwrap<PaperAccount>(data, 'account')));
   }, [open, initialSymbol, initialThesis]);
@@ -58,7 +60,7 @@ export function TradePlanModal({ open, initialSymbol = '', initialThesis = '', o
     const timer = window.setTimeout(async () => {
       setLoadingMarket(true);
       try {
-        const response = await fetch(`/api/market/full?symbol=${encodeURIComponent(ticker)}`, { cache: 'no-store' });
+        const response = await apiFetch(`/api/market/full?symbol=${encodeURIComponent(ticker)}`, { cache: 'no-store' });
         if (!response.ok) return;
         const data = await response.json();
         const price = numberOrZero(data?.ticker?.price);
@@ -136,7 +138,7 @@ export function TradePlanModal({ open, initialSymbol = '', initialThesis = '', o
 
     setSaving(true);
     try {
-      const response = await fetch('/api/paper/trades', {
+      const response = await apiFetch('/api/paper/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,7 +165,7 @@ export function TradePlanModal({ open, initialSymbol = '', initialThesis = '', o
       let trade = unwrap<PaperTrade>(data, 'trade');
 
       if (enterNow) {
-        const fillResponse = await fetch(`/api/paper/trades/${trade.id}/fills`, {
+        const fillResponse = await apiFetch(`/api/paper/trades/${trade.id}/fills`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

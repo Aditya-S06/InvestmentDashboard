@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -93,7 +95,7 @@ function InsightsClientBody() {
 
   const fetchAccess = useCallback(async () => {
     setAccess((prev) => ({ ...prev, loading: true }));
-    const res = await fetch('/api/insights/access', { cache: 'no-store' });
+    const res = await apiFetch('/api/insights/access', { cache: 'no-store' });
     if (!res.ok) {
       setAccess({ loading: false, hasAccess: false, source: null, isAdmin: false, adminKeyConfigured: false });
       return;
@@ -109,7 +111,7 @@ function InsightsClientBody() {
   }, []);
 
   const fetchSessions = useCallback(async () => {
-    const res = await fetch('/api/insights/sessions', { cache: 'no-store' });
+    const res = await apiFetch('/api/insights/sessions', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     setSessions(Array.isArray(data) ? data : []);
@@ -134,7 +136,7 @@ function InsightsClientBody() {
   }, []);
 
   const loadSession = useCallback(async (sessionId: string) => {
-    const res = await fetch(`/api/insights/sessions/${sessionId}`, { cache: 'no-store' });
+    const res = await apiFetch(`/api/insights/sessions/${sessionId}`, { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     setActiveSessionId(data.id);
@@ -156,7 +158,7 @@ function InsightsClientBody() {
   }, [access.hasAccess, loadSession, sessionFromQuery]);
 
   const deleteSession = async (sessionId: string) => {
-    await fetch(`/api/insights/sessions/${sessionId}`, { method: 'DELETE' });
+    await apiFetch(`/api/insights/sessions/${sessionId}`, { method: 'DELETE' });
     setSessions((prev) => prev.filter((session) => session.id !== sessionId));
     if (activeSessionId === sessionId) {
       setActiveSessionId(null);
@@ -178,7 +180,7 @@ function InsightsClientBody() {
     // The brief runs the full tool loop server-side, so warn about the wait.
     toast.info('Building your daily brief — this takes a minute.');
     try {
-      const res = await fetch('/api/insights/brief', { method: 'POST' });
+      const res = await apiFetch('/api/insights/brief', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data?.error) {
         toast.error(data?.error ?? 'Daily brief failed');
@@ -260,7 +262,7 @@ function InsightsClientBody() {
     ]);
 
     try {
-      const res = await fetch('/api/insights/chat', {
+      const res = await apiFetch('/api/insights/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

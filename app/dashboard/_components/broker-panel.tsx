@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useCallback, useEffect, useState } from 'react';
 import { Briefcase, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -25,7 +27,7 @@ export function BrokerPanel() {
 
   const loadTradingStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/broker/trading-status', { cache: 'no-store' });
+      const res = await apiFetch('/api/broker/trading-status', { cache: 'no-store' });
       if (!res.ok) return;
       const status = await res.json();
       setKillSwitch(Boolean(status?.killSwitch));
@@ -40,7 +42,7 @@ export function BrokerPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/broker/accounts', { cache: 'no-store' });
+      const res = await apiFetch('/api/broker/accounts', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       if (data?.error || !res.ok) {
         setError(data?.error ?? 'Failed to load accounts');
@@ -82,8 +84,8 @@ export function BrokerPanel() {
     setError(null);
     try {
       const [posRes, balRes] = await Promise.all([
-        fetch(`/api/broker/positions?accountId=${encodeURIComponent(id)}`, { cache: 'no-store' }),
-        fetch(`/api/broker/balance?accountId=${encodeURIComponent(id)}`, { cache: 'no-store' }),
+        apiFetch(`/api/broker/positions?accountId=${encodeURIComponent(id)}`, { cache: 'no-store' }),
+        apiFetch(`/api/broker/balance?accountId=${encodeURIComponent(id)}`, { cache: 'no-store' }),
       ]);
       const posData = await posRes.json().catch(() => ({}));
       const balData = await balRes.json().catch(() => ({}));
@@ -91,7 +93,7 @@ export function BrokerPanel() {
       else if (balData?.error || !balRes.ok) setError(balData?.error ?? 'Balance failed');
       setPositions(Array.isArray(posData?.positions) ? posData.positions : []);
       setBalance(balData?.error || !balRes.ok ? null : balData);
-      const ordersRes = await fetch(`/api/broker/orders?accountId=${encodeURIComponent(id)}`, { cache: 'no-store' });
+      const ordersRes = await apiFetch(`/api/broker/orders?accountId=${encodeURIComponent(id)}`, { cache: 'no-store' });
       const ordersData = await ordersRes.json().catch(() => ({}));
       const open = Array.isArray(ordersData?.open) ? ordersData.open : [];
       setOpenOrders(open);
@@ -254,7 +256,7 @@ export function BrokerPanel() {
                       type="button"
                       className="rounded border border-border px-1.5 py-0.5"
                       onClick={async () => {
-                        const res = await fetch(`/api/broker/orders/${id}/cancel`, { method: 'POST' });
+                        const res = await apiFetch(`/api/broker/orders/${id}/cancel`, { method: 'POST' });
                         if (res.ok) toast.success(`Cancel sent for ${o.symbol}`);
                         else toast.error('Cancel failed');
                         if (accountId) loadAccountData(accountId);
@@ -273,7 +275,7 @@ export function BrokerPanel() {
               type="button"
               className="text-[11px] text-muted-foreground hover:text-foreground"
               onClick={async () => {
-                const res = await fetch('/api/broker/kill-switch', {
+                const res = await apiFetch('/api/broker/kill-switch', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ enabled: !killSwitch }),

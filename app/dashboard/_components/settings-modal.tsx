@@ -1,6 +1,9 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { X, Key, Check, Loader2 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -17,11 +20,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [adminKeyConfigured, setAdminKeyConfigured] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [existingKeys, setExistingKeys] = useState<{ provider: string; hasKey: boolean }[]>([]);
   const [health, setHealth] = useState<HealthCheck[] | null>(null);
 
   useEffect(() => {
-    fetch('/api/insights/access')
+    apiFetch('/api/insights/access')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         setIsAdmin(!!data?.isAdmin);
@@ -30,12 +34,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       .catch(() => {});
 
     // 403 for non-admins, which simply hides the panel.
-    fetch('/api/health')
+    apiFetch('/api/health')
       .then((r) => (r.ok || r.status === 503 ? r.json() : null))
       .then((data) => setHealth(Array.isArray(data?.checks) ? data.checks : null))
       .catch(() => {});
 
-    fetch('/api/settings/apikeys')
+    apiFetch('/api/settings/apikeys')
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setExistingKeys(data ?? []))
       .catch(() => {});
@@ -43,32 +47,29 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaved(false);
+    setSaveError('');
     try {
-      if (alphaVantageKey?.trim()) {
-        await fetch('/api/settings/apikeys', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'alpha_vantage', apiKey: alphaVantageKey.trim() }),
+      const keys = [
+        ['alpha_vantage', alphaVantageKey], ['polygon', polygonKey],
+        ...(!isAdmin ? [['openrouter', openRouterKey]] : []),
+      ];
+      for (const [provider, key] of keys) {
+        if (!key.trim()) continue;
+        const response = await apiFetch('/api/settings/apikeys', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, apiKey: key.trim() }),
         });
+        if (!response.ok) throw new Error('Could not save all API keys. Check the server configuration and try again.');
       }
-      if (polygonKey?.trim()) {
-        await fetch('/api/settings/apikeys', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'polygon', apiKey: polygonKey.trim() }),
-        });
-      }
-      if (!isAdmin && openRouterKey?.trim()) {
-        await fetch('/api/settings/apikeys', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'openrouter', apiKey: openRouterKey.trim() }),
-        });
-      }
+      setAlphaVantageKey(''); setPolygonKey(''); setOpenRouterKey('');
+      const response = await apiFetch('/api/settings/apikeys');
+      if (response.ok) setExistingKeys(await response.json());
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch { /* ignore */ }
-    setSaving(false);
+    } catch {
+      setSaveError('Could not save all API keys. Check the server configuration and try again.');
+    } finally { setSaving(false); }
   };
 
   const canSave =
@@ -88,6 +89,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         </div>
 
         <div className="px-5 py-4 space-y-4">
+          <Link href="/dashboard/security" onClick={onClose} className="block text-sm underline">Account security: MFA, password and account deletion</Link>
           <p className="text-xs text-muted-foreground">
             Optional market data keys. AI Insights uses OpenRouter — admin uses the server key; other users add their own below.
           </p>
@@ -157,6 +159,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             </div>
           )}
 
+          {saveError && <p role="alert" className="text-xs text-red-400">{saveError}</p>}
           <button
             onClick={handleSave}
             disabled={saving || !canSave}

@@ -55,7 +55,10 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(evidence['memoryType'], 'DeskMemoryLog')
         self.assertIn('DATA_UNAVAILABLE', evidence['direct'])
         self.assertIn('503', evidence['direct'])
-        self.assertIn('[REDACTED]', evidence['direct'])
+        # Upstream scrubs the key itself (***) before our sanitizer runs, so
+        # either marker proves no raw secret survived the tool boundary. Our
+        # layer is proven independently by test_tool_contracts below.
+        self.assertTrue('[REDACTED]' in evidence['direct'] or '***' in evidence['direct'])
         self.assertEqual(len(evidence['prompts']), 2)
         message = next(m for m in evidence['prompts'][1] if m['type'] == 'tool')
         self.assertEqual(message['tool_call_id'], 'macro-call')
@@ -76,19 +79,18 @@ class SafetyTests(unittest.TestCase):
         from langgraph.prebuilt import ToolNode
         from langgraph.graph import StateGraph, MessagesState, START, END
         from langchain_core.messages import AIMessage
-        from desk_tool_safety import safe_tool
+        from desk_tool_safety import safe_plan, safe_tool
         from tradingagents.graph.checkpointer import get_checkpointer
-        import trading_desk_runner as runner
-        from tradingagents.agents.utils.macro_data_tools import get_macro_indicators
-        graph = runner.TradingAgentsGraph.__new__(runner.TradingAgentsGraph)
-        nodes = graph._create_tool_nodes()
-        copied = nodes['news'].tools_by_name['get_macro_indicators']
+        from tradingagents.agents.tools import get_macro_indicators
+        plan = safe_plan(('market', 'social', 'news', 'fundamentals'))
+        copied = next(tool for spec in plan.specs if spec.key == 'news'
+                      for tool in spec.tools if tool.name == 'get_macro_indicators')
         self.assertIsNot(copied, get_macro_indicators)
         self.assertIsNot(copied.func, get_macro_indicators.func)
         for key in ('name', 'description', 'args_schema', 'metadata', 'tags', 'response_format', 'return_direct'):
             self.assertEqual(getattr(copied, key), getattr(get_macro_indicators, key))
-        for node in nodes.values():
-            for tool in node.tools_by_name.values():
+        for spec in plan.specs:
+            for tool in spec.tools:
                 self.assertTrue(hasattr(tool.func, '__wrapped__'))
 
         def payload(value: str):

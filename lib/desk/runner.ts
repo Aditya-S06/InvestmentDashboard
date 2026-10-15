@@ -22,8 +22,8 @@ import { aggregateDeskResults, curateDeskState, deskRunResults, emptyDeskResults
 const SCRIPT = path.join(process.cwd(), 'scripts', 'desk_supervisor.py');
 const TRADINGAGENTS_DIR = path.join(process.cwd(), 'TradingAgents');
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const DEFAULT_DEEP_MODEL = 'deepseek/deepseek-v4-pro';
-const DEFAULT_QUICK_MODEL = 'google/gemini-3.5-flash';
+const DEFAULT_DEEP_MODEL = 'anthropic/claude-haiku-5.5';
+const DEFAULT_QUICK_MODEL = 'deepseek/deepseek-v4.1-flash';
 
 /** Same existsSync candidate loop as lib/python-runner.ts, pointed at TradingAgents/.venv. */
 function getDeskPythonExecutable(): string {

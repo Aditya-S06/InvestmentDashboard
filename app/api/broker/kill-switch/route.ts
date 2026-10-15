@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 import { NextResponse } from 'next/server';
 import { requireBrokerAdmin } from '@/lib/webull/require-admin';
 import { setKillSwitch, getKillSwitch } from '@/lib/webull/audit';
@@ -10,7 +11,7 @@ export async function GET() {
   return NextResponse.json({ killSwitch: await getKillSwitch() });
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   const auth = await requireBrokerAdmin();
   if ('error' in auth) return auth.error;
   const body = await request.json().catch(() => ({}));
@@ -18,3 +19,5 @@ export async function POST(request: Request) {
   const row = await setKillSwitch(auth.userId, enabled);
   return NextResponse.json({ killSwitch: row.killSwitch });
 }
+
+export const POST = withMutationProtection(POSTHandler);

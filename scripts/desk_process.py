@@ -75,8 +75,15 @@ class Lock:
     def __enter__(self):
         self.file = self.path.open('a+b')
         if self.path.stat().st_size == 0:
-            self.file.write(b'0')
-            self.file.flush()
+            try:
+                self.file.write(b'0')
+                self.file.flush()
+            except OSError:
+                # Best effort only: another process may already hold the byte
+                # being initialized (upstream creates zero-length lock files it
+                # never writes). The byte-range lock below is the real mutual
+                # exclusion; a denied init write must not crash a lock probe.
+                pass
         until = time.monotonic() + self.wait
         while True:
             try:
@@ -89,22 +96,32 @@ class Lock:
                     fcntl.flock(self.file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 return self
             except OSError:
+                # Includes Windows denying even seek()/close() on a handle
+                # whose byte range another process locked: treat as contended.
                 if time.monotonic() >= until:
-                    self.file.close()
+                    try:
+                        self.file.close()
+                    except OSError:
+                        pass
                     self.file = None
                     raise TimeoutError('Desk control lock busy') from None
                 time.sleep(.02)
 
     def __exit__(self, *_):
         if self.file:
-            if os.name == 'nt':
-                import msvcrt
-                self.file.seek(0)
-                msvcrt.locking(self.file.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
-            self.file.close()
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    self.file.seek(0)
+                    msvcrt.locking(self.file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
+            finally:
+                try:
+                    self.file.close()
+                except OSError:
+                    pass
 
 
 class WindowsJob:

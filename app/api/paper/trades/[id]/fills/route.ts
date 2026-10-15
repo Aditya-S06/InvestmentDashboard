@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -19,7 +20,7 @@ interface RouteContext {
 const FILL_SIDES = new Set<FillSide>(['BUY', 'SELL']);
 const FILL_TYPES = new Set<FillType>(['ENTRY', 'ADD', 'REDUCE', 'EXIT']);
 
-export async function POST(request: Request, { params }: RouteContext) {
+async function POSTHandler(request: Request, { params }: RouteContext) {
   const userId = await requirePaperUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -50,3 +51,5 @@ export async function POST(request: Request, { params }: RouteContext) {
     return paperError(error);
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

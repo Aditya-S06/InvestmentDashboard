@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import bcrypt from 'bcryptjs';
-import { NextRequest } from 'next/server';
+import { CsrfRequest as NextRequest, installCsrfFixture } from '../../test/csrf-fixture';
 import { Prisma } from '@prisma/client';
+import { consumeRateLimit, RateLimitUnavailable } from './rate-limit';
 
 const userCreate = vi.fn();
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { create: (...args: unknown[]) => userCreate(...args) } },
+vi.mock('@/lib/identity-db', () => ({
+  identityDb: { user: { create: (...args: unknown[]) => userCreate(...args) } },
 }));
 
 const { POST } = await import('@/app/api/signup/route');
@@ -23,10 +24,24 @@ function signupRequest(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, remaining: 4, retryAfterSec: 60 });
   delete process.env.ALLOW_PUBLIC_SIGNUP;
 });
 
 describe('POST /api/signup', () => {
+  it('returns 503 without creating an account when the shared limiter is unavailable', async () => {
+    vi.mocked(consumeRateLimit).mockRejectedValue(new RateLimitUnavailable());
+    const response = await POST(signupRequest({ email: 'new@example.test', password: PASSWORD }));
+    expect(response.status).toBe(503);
+    expect(userCreate).not.toHaveBeenCalled();
+  });
+  it('returns Retry-After on shared rate-limit denial', async () => {
+    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: false, remaining: 0, retryAfterSec: 42 });
+    const response = await POST(signupRequest({ email: 'new@example.test', password: PASSWORD }));
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('42');
+    expect(userCreate).not.toHaveBeenCalled();
+  });
   it('returns 403 when public signup is disabled', async () => {
     const res = await POST(signupRequest({ email: 'a@example.com', password: PASSWORD }));
     expect(res.status).toBe(403);
@@ -68,3 +83,7 @@ describe('POST /api/signup', () => {
     expect(JSON.stringify(body).toLowerCase()).not.toMatch(/exist|already|taken/);
   });
 });
+
+beforeEach(installCsrfFixture);
+
+vi.mock('@/lib/auth/rate-limit', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/auth/rate-limit')>(), consumeRateLimit: vi.fn(async () => ({ allowed: true, remaining: 9, retryAfterSec: 60 })) }));

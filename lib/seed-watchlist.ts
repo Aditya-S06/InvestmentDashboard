@@ -20,10 +20,10 @@ export async function ensureDefaultWatchlist(userId: string): Promise<boolean> {
 }
 
 /** Upserts the starter watchlist tickers (safe to run multiple times). */
-export async function upsertDefaultWatchlist(userId: string): Promise<number> {
+export async function upsertDefaultWatchlist(userId: string, db = prisma): Promise<number> {
   for (const ticker of DEFAULT_WATCHLIST_TICKERS) {
     const sector = sectorForTicker(ticker);
-    await prisma.watchlist.upsert({
+    await db.watchlist.upsert({
       where: { userId_ticker: { userId, ticker } },
       update: { sector },
       create: { userId, ticker, sector },

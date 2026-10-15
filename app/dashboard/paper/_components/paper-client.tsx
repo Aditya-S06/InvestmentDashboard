@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -167,11 +169,11 @@ export function PaperClient() {
     setError(null);
     try {
       const [accountResponse, tradesResponse, positionsResponse, analyticsResponse, reviewsResponse] = await Promise.all([
-        fetch('/api/paper/account', { cache: 'no-store' }),
-        fetch('/api/paper/trades', { cache: 'no-store' }),
-        fetch('/api/paper/positions', { cache: 'no-store' }),
-        fetch('/api/paper/analytics', { cache: 'no-store' }),
-        fetch('/api/paper/reviews', { cache: 'no-store' }),
+        apiFetch('/api/paper/account', { cache: 'no-store' }),
+        apiFetch('/api/paper/trades', { cache: 'no-store' }),
+        apiFetch('/api/paper/positions', { cache: 'no-store' }),
+        apiFetch('/api/paper/analytics', { cache: 'no-store' }),
+        apiFetch('/api/paper/reviews', { cache: 'no-store' }),
       ]);
       const [accountData, tradesData, positionsData, analyticsData, reviewsData] = await Promise.all([
         readJson(accountResponse),
@@ -255,7 +257,7 @@ export function PaperClient() {
       return;
     }
     try {
-      const response = await fetch('/api/paper/account/reset', {
+      const response = await apiFetch('/api/paper/account/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ startingEquity }),
@@ -271,7 +273,7 @@ export function PaperClient() {
     setSavingReview(true);
     setError(null);
     try {
-      const response = await fetch('/api/paper/reviews', {
+      const response = await apiFetch('/api/paper/reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

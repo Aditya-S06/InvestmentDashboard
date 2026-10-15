@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Settings, Youtube } from 'lucide-react';
@@ -45,7 +47,7 @@ export function YoutubeAnalysisClient() {
   const [filterDays, setFilterDays] = useState(7);
 
   const fetchChannels = useCallback(async () => {
-    const res = await fetch('/api/youtube/channels', { cache: 'no-store' });
+    const res = await apiFetch('/api/youtube/channels', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     setChannels({
@@ -64,7 +66,7 @@ export function YoutubeAnalysisClient() {
     if (filterDays > 0) params.set('since_days', String(filterDays));
     params.set('limit', '50');
 
-    const res = await fetch(`/api/youtube/summaries?${params.toString()}`, { cache: 'no-store' });
+    const res = await apiFetch(`/api/youtube/summaries?${params.toString()}`, { cache: 'no-store' });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data?.error || 'Failed to load summaries');
@@ -97,7 +99,7 @@ export function YoutubeAnalysisClient() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch('/api/youtube/channels', {
+      const res = await apiFetch('/api/youtube/channels', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(next),
@@ -124,7 +126,7 @@ export function YoutubeAnalysisClient() {
     setError(null);
     setStatus(payload.channel ? `Polling ${payload.channel}...` : 'Polling all channels...');
     try {
-      const res = await fetch('/api/youtube/poll', {
+      const res = await apiFetch('/api/youtube/poll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -153,7 +155,7 @@ export function YoutubeAnalysisClient() {
     setError(null);
     setStatus(payload.transcript ? 'Summarizing pasted transcript...' : 'Ingesting video...');
     try {
-      const res = await fetch('/api/youtube/ingest', {
+      const res = await apiFetch('/api/youtube/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

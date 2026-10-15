@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -16,7 +17,7 @@ const BRIEF_PROMPT = [
   'Finish with the two or three names that deserve attention first and why.',
 ].join(' ');
 
-export async function POST() {
+async function POSTHandler(_request: Request) {
   const auth = await requireInsightsAccess();
   if (auth instanceof NextResponse) return auth;
   if (!auth.isAdmin) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
@@ -63,3 +64,5 @@ export async function POST() {
     return serverError('insights/brief', error, 'Daily brief failed. Check the server logs and retry.');
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -17,7 +18,7 @@ function serializeWatchlistItem(i: { id: string; ticker: string; sector: string 
 }
 
 /** POST — load or refresh the starter watchlist for the signed-in user. */
-export async function POST() {
+async function POSTHandler(_request: Request) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
   const { userId } = auth;
@@ -42,3 +43,5 @@ export async function POST() {
     return serverError('watchlist/bootstrap', error, 'Could not load the starter watchlist');
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

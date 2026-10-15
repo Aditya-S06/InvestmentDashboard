@@ -1,8 +1,12 @@
 import { DashboardNav } from './_components/dashboard-nav';
 import { WatchlistProvider } from './_components/watchlist-provider';
 import { TradeTicketProvider } from './_components/trade-ticket-provider';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  if (!(await getServerSession(authOptions))?.user) redirect('/login');
   return (
     <WatchlistProvider>
       <TradeTicketProvider>

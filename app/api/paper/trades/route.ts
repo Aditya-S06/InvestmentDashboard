@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { Prisma } from '@prisma/client';
@@ -69,7 +70,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   const userId = await requirePaperUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -148,3 +149,5 @@ export async function POST(request: Request) {
     return paperError(error);
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

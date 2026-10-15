@@ -10,6 +10,22 @@ import { PRIVATE_FILES, checkPrivate, provisionPrivate } from '../scripts/provis
 export const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Explicit intended additions only: no recursive workspace copy or ignored files.
 export const additions = [
+  'lib/identity-db.ts', 'lib/database/scoped-client.ts', 'lib/auth/identity.ts',
+  'lib/auth/identity.test.ts', 'lib/auth/totp.ts', 'lib/auth/account-service.ts', 'lib/auth/account-service.test.ts',
+  'app/api/account/security/route.ts', 'app/dashboard/security/page.tsx',
+  'scripts/harden-database.cjs', 'scripts/verify-identity-db.ts', 'scripts/operator-env.cjs',
+  'scripts/identity-http-smoke.ts', 'scripts/setup-database.cjs', 'docs/identity-hardening.md',
+  'prisma/migrations/20261012000000_database_identity_hardening/migration.sql',
+  'lib/security/api-key-crypto.ts', 'lib/security/api-key-store.ts', 'lib/security/api-key-routes.ts',
+  'lib/security/mutation.ts', 'lib/security/csp.ts', 'lib/http/api-fetch.ts',
+  'lib/auth/rate-limit-db.ts', 'test/csrf-fixture.ts',
+  'lib/security/api-key-crypto.test.ts', 'lib/security/api-key-routes.test.ts',
+  'lib/security/mutation.test.ts', 'lib/security/csp.test.ts',
+  'lib/auth/rate-limit-db.test.ts', 'lib/http/api-fetch.test.ts', 'test/mutation-coverage.test.ts',
+  'test/containment.test.ts', 'test/demo-seed.test.ts',
+  'scripts/init-key-encryption.cjs', 'scripts/encrypt-api-keys.ts',
+  'scripts/apply-security-migration.cjs', 'scripts/verify-security-db.ts', 'scripts/security-http-smoke.cjs',
+  'prisma/migrations/20261011000000_shared_auth_rate_limit/migration.sql',
   'SECURITY.md', 'lib/auth/admin.ts', 'lib/auth/admin.test.ts',
   'scripts/provision-private.mjs', 'test/setup.test.mjs',
   'lib/subprocess-env.ts', 'lib/subprocess-env.test.ts', 'lib/python-runner.test.ts',

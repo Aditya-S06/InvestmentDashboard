@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -12,7 +13,7 @@ interface RouteContext {
   params: { id: string };
 }
 
-export async function POST(req: Request, { params }: RouteContext) {
+async function POSTHandler(req: Request, { params }: RouteContext) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
@@ -46,3 +47,5 @@ export async function POST(req: Request, { params }: RouteContext) {
     return serverError('desk/insights', error, 'Could not send this report to Insights');
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

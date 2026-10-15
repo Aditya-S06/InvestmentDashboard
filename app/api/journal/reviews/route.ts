@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -31,7 +32,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   const userId = await requireJournalUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -89,3 +90,5 @@ export async function POST(request: Request) {
     return journalError(error);
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

@@ -1,8 +1,8 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/require-admin';
-import { requireUser } from '@/lib/auth/require-user';
 import { serverError } from '@/lib/http/errors';
 import {
   readChannelsConfig,
@@ -12,8 +12,8 @@ import {
 } from '@/lib/youtube/channels';
 
 export async function GET() {
-  const auth = await requireUser();
-  if (auth instanceof NextResponse) return auth;
+  const auth = await requireAdmin();
+  if ('error' in auth) return auth.error;
 
   try {
     const config = readChannelsConfig();
@@ -27,7 +27,7 @@ export async function GET() {
   }
 }
 
-export async function PUT(req: NextRequest) {
+async function PUTHandler(req: NextRequest) {
   const auth = await requireAdmin();
   if ('error' in auth) return auth.error;
 
@@ -51,3 +51,5 @@ export async function PUT(req: NextRequest) {
     return serverError('youtube/channels/save', error, 'Could not save channel config');
   }
 }
+
+export const PUT = withMutationProtection(PUTHandler);

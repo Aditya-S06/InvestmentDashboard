@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useId, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Download, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
@@ -16,6 +18,7 @@ import {
 } from '@/lib/desk/report';
 import type { DeskAnalyst, DeskSignal } from '@/lib/desk/types';
 import { useWatchlist } from '../../_components/watchlist-provider';
+import { DeskUsage } from './desk-usage';
 
 type DeskReportProps = {
   runId: string;
@@ -117,7 +120,7 @@ function TabPanel({
 }
 
 async function downloadFile(runId: string, format: 'md' | 'zip', ticker: string) {
-  const res = await fetch(`/api/desk/runs/${runId}/download?format=${format}&ticker=${encodeURIComponent(ticker)}`);
+  const res = await apiFetch(`/api/desk/runs/${runId}/download?format=${format}&ticker=${encodeURIComponent(ticker)}`);
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? 'Download failed');
@@ -189,7 +192,7 @@ export function DeskReport({
     if (!available) return;
     setBusy('insights');
     try {
-      const res = await fetch(`/api/desk/runs/${runId}/insights?ticker=${encodeURIComponent(ticker)}`, { method: 'POST' });
+      const res = await apiFetch(`/api/desk/runs/${runId}/insights?ticker=${encodeURIComponent(ticker)}`, { method: 'POST' });
       const data = (await res.json().catch(() => null)) as { sessionId?: string; error?: string } | null;
       if (!res.ok || !data?.sessionId) {
         toast.error(data?.error ?? 'Could not send to Insights');
@@ -222,7 +225,7 @@ export function DeskReport({
     }
     setBusy('rerun');
     try {
-      const res = await fetch('/api/desk/runs', {
+      const res = await apiFetch('/api/desk/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(rerunInput),
@@ -304,6 +307,7 @@ export function DeskReport({
         </div>
       </header>
 
+      <DeskUsage state={selected?.finalState} />
       <div role="tablist" aria-label="Report sections" className="flex flex-wrap gap-1 border-b border-border px-2">
         {DESK_REPORT_TABS.map((item, index) => (
           <button

@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Save, X } from 'lucide-react';
 import { Area, ComposedChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -87,7 +89,7 @@ export function TradeDetailDrawer({ trade, onClose, onChanged }: TradeDetailDraw
     setWorkingTarget(trade?.targetPrice ? String(trade.targetPrice) : '');
     setError(null);
     if (!trade) return;
-    void fetch(`/api/market/historical?symbol=${encodeURIComponent(trade.symbol)}&period=1y`, { cache: 'no-store' })
+    void apiFetch(`/api/market/historical?symbol=${encodeURIComponent(trade.symbol)}&period=1y`, { cache: 'no-store' })
       .then((response) => response.ok ? response.json() : [])
       .then((data) => setHistory(Array.isArray(data) ? data : data?.items ?? []));
   }, [trade]);
@@ -99,7 +101,7 @@ export function TradeDetailDrawer({ trade, onClose, onChanged }: TradeDetailDraw
 
   const patch = async (body: Record<string, unknown>) => {
     if (!current) return null;
-    const response = await fetch(`/api/paper/trades/${current.id}`, {
+    const response = await apiFetch(`/api/paper/trades/${current.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -146,7 +148,7 @@ export function TradeDetailDrawer({ trade, onClose, onChanged }: TradeDetailDraw
       const action = current.side === 'LONG'
         ? opening ? 'BUY' : 'SELL'
         : opening ? 'SELL' : 'BUY';
-      const response = await fetch(`/api/paper/trades/${current.id}/fills`, {
+      const response = await apiFetch(`/api/paper/trades/${current.id}/fills`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: fillKind, side: action, qty, price, filledAt: new Date().toISOString() }),
@@ -194,7 +196,7 @@ export function TradeDetailDrawer({ trade, onClose, onChanged }: TradeDetailDraw
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/paper/trades/${current.id}/close`, {
+      const response = await apiFetch(`/api/paper/trades/${current.id}/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ price, filledAt: new Date().toISOString() }),

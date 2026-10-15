@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -14,7 +15,7 @@ import {
 import { upsertFromIngestResult } from '@/lib/youtube/db';
 import fs from 'fs';
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   const auth = await requireAdmin();
   if ('error' in auth) return auth.error;
 
@@ -69,3 +70,5 @@ export async function POST(req: NextRequest) {
     return serverError('youtube/poll', error, 'Channel poll failed');
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

@@ -24,7 +24,13 @@ def offline(*args, **kwargs):
     raise AssertionError('Network forbidden in checkpoint fixture')
 socket.socket.connect = offline
 
-from desk_checkpoint import identity, inspection_workflow, remember, upstream
+from desk_checkpoint import (
+    DEFAULT_OPENROUTER_BASE_URL,
+    compute_thread_id,
+    inspection_workflow,
+    remember,
+    upstream,
+)
 upstream()
 from tradingagents.graph.checkpointer import get_checkpointer
 
@@ -39,11 +45,14 @@ if len(sys.argv) > 2 and sys.argv[2] == 'fail-after-ready':
 
 user = Path(sys.argv[1])
 value = dict(ticker='AAPL', asOf='2026-10-01', depth='fast', analysts=['market'], assetType='stock')
-remember(user, value, dict(deep_think_llm='fixture-deep', quick_think_llm='fixture-quick', output_language='English'))
+settings = dict(desk_policy_version=1, max_tool_rounds=3, deep_think_llm='fixture-deep', quick_think_llm='fixture-quick', output_language='English',
+                benchmark_ticker=None, temperature=None, llm_max_retries=None, max_tokens=None)
+remember(user, value, settings, DEFAULT_OPENROUTER_BASE_URL)
+thread = compute_thread_id(value, settings, DEFAULT_OPENROUTER_BASE_URL)
 with get_checkpointer(user / 'cache', 'AAPL') as saver:
     graph = inspection_workflow(value).compile(checkpointer=saver, interrupt_before=['Market Analyst'])
     graph.invoke({'company_of_interest': 'AAPL', 'trade_date': value['asOf'], 'asset_type': 'stock', 'messages': []},
-                 {'configurable': {'thread_id': identity(value)}})
+                 {'configurable': {'thread_id': thread}})
 
 # SQLite has closed above. Avoid interpreter shutdown waiting on the lease's
 # native stdin read; the parent still observes a real successful process exit.

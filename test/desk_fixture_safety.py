@@ -81,16 +81,18 @@ def macro_probe(directory):
     config = runner.build_config('fast', True, directory / 'results', directory / 'memory.md', directory / 'cache')
     event_stream, logs = io.StringIO(), io.StringIO()
     with ExitStack() as stack:
-        stack.enter_context(patch.object(trading_graph, 'create_llm_client',
+        stack.enter_context(patch.object(trading_graph, 'create_tier_client',
                                         return_value=SimpleNamespace(get_llm=lambda: Model())))
-        stack.enter_context(patch('tradingagents.dataflows.fred.requests.get', side_effect=http503))
+        stack.enter_context(patch('tradingagents.dataflows.net.requests.get', side_effect=http503))
         stack.enter_context(patch.object(runner, '_EVENT_STREAM', event_stream))
         stack.enter_context(redirect_stderr(runner._RedactingWriter(logs)))
         graph = runner.TradingAgentsGraph(selected_analysts=['news'], config=config)
-        direct = graph.tool_nodes['news'].tools_by_name['get_macro_indicators'].invoke(
+        from desk_tool_safety import safe_plan
+        news_spec = next(spec for spec in safe_plan(('news',)).specs if spec.key == 'news')
+        direct = next(tool for tool in news_spec.tools if tool.name == 'get_macro_indicators').invoke(
             {'indicator': 'cpi', 'curr_date': '2026-10-01'})
         with get_checkpointer(directory / 'cache', 'AAPL') as saver:
-            compiled = graph.workflow.compile(checkpointer=saver, interrupt_before=['Msg Clear News'])
+            compiled = graph.workflow.compile(checkpointer=saver, interrupt_before=['Bull Researcher'])
             state = compiled.invoke(graph.propagator.create_initial_state('AAPL', '2026-10-01'), {
                 'configurable': {'thread_id': 'offline-macro'},
                 'callbacks': [runner.DeskEventHandler('AAPL'), Observer()],
@@ -147,11 +149,10 @@ def graph_worker(path, ticker):
     from tradingagents.graph import trading_graph
     from types import SimpleNamespace
     config = runner.build_config('fast', False, path.parent / ticker, path, path.parent / 'cache')
-    with patch.object(trading_graph, 'create_llm_client',
+    with patch.object(trading_graph, 'create_tier_client',
                       return_value=SimpleNamespace(get_llm=lambda: None)):
         graph = runner.TradingAgentsGraph(selected_analysts=['news'], config=config)
     graph.resolve_instrument_context = lambda *args: 'offline instrument'
-    graph.process_signal = lambda *args: 'Hold'
 
     def invoke(state, **kwargs):
         # A peer may be finishing its short initial read; wait for that, but a

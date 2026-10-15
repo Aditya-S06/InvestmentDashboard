@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
@@ -53,7 +55,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
   const disabled = !status?.tradingEnabled || status?.killSwitch;
 
   useEffect(() => {
-    fetch('/api/broker/trading-status', { cache: 'no-store' })
+    apiFetch('/api/broker/trading-status', { cache: 'no-store' })
       .then(async (res) => {
         const data = await res.json();
         if (res.status === 403 || res.status === 401) {
@@ -67,7 +69,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
 
   useEffect(() => {
     if (!status?.configured) return;
-    fetch('/api/broker/accounts', { cache: 'no-store' })
+    apiFetch('/api/broker/accounts', { cache: 'no-store' })
       .then(async (res) => {
         const data = await res.json();
         if (data?.error) {
@@ -85,7 +87,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
 
   useEffect(() => {
     if (!accountId) return;
-    fetch(`/api/broker/balance?accountId=${encodeURIComponent(accountId)}`, { cache: 'no-store' })
+    apiFetch(`/api/broker/balance?accountId=${encodeURIComponent(accountId)}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
         if (data?.error) setError(data.error);
@@ -154,7 +156,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
     setError(null);
     setPlaceArmed(false);
     try {
-      const res = await fetch('/api/broker/orders/preview', {
+      const res = await apiFetch('/api/broker/orders/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload()),
@@ -181,7 +183,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/broker/orders/place', {
+      const res = await apiFetch('/api/broker/orders/place', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload(), previewId }),
@@ -208,7 +210,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
     const started = Date.now();
     const tick = async () => {
       if (cancelled) return;
-      const res = await fetch(`/api/broker/orders/${working.clientOrderId}`, { cache: 'no-store' });
+      const res = await apiFetch(`/api/broker/orders/${working.clientOrderId}`, { cache: 'no-store' });
       const data = await res.json();
       if (data?.journalTradeId) {
         toast.success(`${data.order?.symbol ?? 'Live'} fill written to your journal`, {
@@ -473,7 +475,7 @@ export function TradeTicket({ draft, onClose }: { draft: TradeTicketDraft; onClo
                   type="button"
                   className="mt-2 rounded-md border border-border px-2 py-1"
                   onClick={async () => {
-                    const res = await fetch(`/api/broker/orders/${working.clientOrderId}/cancel`, {
+                    const res = await apiFetch(`/api/broker/orders/${working.clientOrderId}/cancel`, {
                       method: 'POST',
                     });
                     if (res.ok) toast.success(`Cancel sent for ${working.symbol ?? symbol}`);

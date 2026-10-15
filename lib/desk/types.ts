@@ -47,6 +47,18 @@ export function isDeskDate(value: string): boolean {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+/** Server-local today, matching upstream's date.today() comparison. */
+export function deskTodayLocal(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** Reject future trade dates before any rate-limit charge or reservation. */
+export function isDeskTodayOrPast(value: string): boolean {
+  return isDeskDate(value) && value <= deskTodayLocal();
+}
+
 export type CreateDeskRunInput = {
   tickers: string[]; // 1–3, uppercased
   asOf: string; // YYYY-MM-DD

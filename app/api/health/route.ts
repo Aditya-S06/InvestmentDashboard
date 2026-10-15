@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/require-admin';
+import { logServerError } from '@/lib/http/errors';
 import { prisma } from '@/lib/prisma';
 import { runPython } from '@/lib/python-runner';
 import { getWebullEnvironment, isTradingEnabled, isWebullConfigured } from '@/lib/webull/config';
@@ -14,7 +15,8 @@ async function checkDatabase(): Promise<Check> {
     await prisma.$queryRaw`SELECT 1`;
     return { name: 'database', ok: true };
   } catch (error) {
-    return { name: 'database', ok: false, detail: error instanceof Error ? error.message : 'unreachable' };
+    logServerError('health/database', error);
+    return { name: 'database', ok: false, detail: 'Database unavailable' };
   }
 }
 
@@ -26,7 +28,8 @@ async function checkPython(): Promise<Check> {
       ? { name: 'python', ok: true, detail: 'market_data.py responded' }
       : { name: 'python', ok: false, detail: 'no quote returned' };
   } catch (error) {
-    return { name: 'python', ok: false, detail: error instanceof Error ? error.message : 'failed' };
+    logServerError('health/python', error);
+    return { name: 'python', ok: false, detail: 'Market data check failed' };
   }
 }
 

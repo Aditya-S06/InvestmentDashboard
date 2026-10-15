@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { NextRequest } from 'next/server';
+import { CsrfRequest as NextRequest, installCsrfFixture } from '../../test/csrf-fixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Integrated route/process cases live in acceptance.test.ts; retain fast input
 // rejection and legacy archive coverage that the new-run fixture cannot replace.
@@ -146,3 +146,5 @@ describe('launch validation before charge or spawn', () => {
     expect(mocks.rate).not.toHaveBeenCalled(); expect(mocks.start).not.toHaveBeenCalled();
   });
 });
+
+beforeEach(installCsrfFixture);

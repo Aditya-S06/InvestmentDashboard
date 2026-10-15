@@ -1,10 +1,11 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { paperError, paperJson, readJsonObject, requirePaperUser } from '@/lib/paper/http';
 import { resetPaperAccount } from '@/lib/paper/service';
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
   const userId = await requirePaperUser();
   if (userId instanceof NextResponse) return userId;
   try {
@@ -17,3 +18,5 @@ export async function POST(request: Request) {
     return paperError(error);
   }
 }
+
+export const POST = withMutationProtection(POSTHandler);

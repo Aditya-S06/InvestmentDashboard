@@ -4,6 +4,7 @@ import {
   DESK_DEPTHS,
   isDeskDate,
   isDeskTicker,
+  isDeskTodayOrPast,
   type DeskTickerResult,
   type CreateDeskRunInput,
   type DeskAnalyst,
@@ -28,6 +29,9 @@ export type DeskParsedReport = {
   ticker: string;
   tradeDate: string;
   rating: DeskSignal | null;
+  finalRating: DeskSignal | null;
+  memoryNote: string;
+  runSettings: Record<string, unknown> | null;
   executiveSummary: string;
   thesis: string;
   horizon: string;
@@ -151,6 +155,9 @@ export function parseDeskReport(finalState: unknown, fallbackTicker: string): De
     ticker: fallbackTicker || asString(state.company_of_interest),
     tradeDate: asString(state.trade_date),
     rating,
+    finalRating: parseDeskSignalText(asString(state.final_rating)),
+    memoryNote: asString(state.memory_note),
+    runSettings: curateRunSettings(state.run_settings),
     executiveSummary: pickField(pmFields, ['executive summary']),
     thesis: pickField(pmFields, ['investment thesis']) || pickField(researchFields, ['rationale']),
     horizon: pickField(pmFields, ['time horizon', 'horizon']),
@@ -185,6 +192,7 @@ export function resolveDeskRating(
 ): DeskSignal | null {
   if (status === 'review') return 'REVIEW';
   if (signal) return signal;
+  if (report.finalRating) return report.finalRating;
   if (report.rating) return report.rating;
   return 'REVIEW';
 }
@@ -215,6 +223,7 @@ export function deskReportMarkdown(report: DeskParsedReport, rating: DeskSignal 
   if (report.neutralHistory) lines.push('## Risk — neutral', '', report.neutralHistory, '');
   if (report.riskJudge) lines.push('## Risk — judge', '', report.riskJudge, '');
   if (report.finalDecision) lines.push('## Decision', '', report.finalDecision, '');
+  if (report.memoryNote) lines.push('## Memory note', '', report.memoryNote, '');
   return lines.join('\n').trim() + '\n';
 }
 
@@ -278,7 +287,7 @@ export function createInputFromDeskRun(
   const assetType = parseAsset(source.assetType) ?? parseAsset(run.assetType);
   const checkpoint = typeof source.checkpoint === 'boolean' ? source.checkpoint : run.checkpoint;
   if (!depth || !analysts || !assetType || unique.length < 1) return null;
-  if (!isDeskDate(asOf) || unique.some((ticker) => !isDeskTicker(ticker))) return null;
+  if (!isDeskDate(asOf) || !isDeskTodayOrPast(asOf) || unique.some((ticker) => !isDeskTicker(ticker))) return null;
   if (assetType === 'crypto') {
     const withoutFundamentals = analysts.filter((analyst) => analyst !== 'fundamentals');
     if (withoutFundamentals.length === 0) return null;
@@ -297,8 +306,8 @@ export type DeskResultRun = {
 export function curateDeskState(value: unknown): Record<string, unknown> | null {
   if (!isRecord(value)) return null;
   const result: Record<string, unknown> = {};
-  for (const key of ['company_of_interest', 'trade_date', 'asset_type', 'market_report',
-    'sentiment_report', 'news_report', 'fundamentals_report', 'investment_plan',
+  for (const key of ['company_of_interest', 'trade_date', 'asset_type', 'final_rating', 'memory_note',
+    'market_report', 'sentiment_report', 'news_report', 'fundamentals_report', 'investment_plan',
     'trader_investment_plan', 'trader_investment_decision', 'final_trade_decision']) {
     if (typeof value[key] === 'string') result[key] = value[key];
   }
@@ -310,6 +319,59 @@ export function curateDeskState(value: unknown): Record<string, unknown> | null 
     if (!isRecord(source)) continue;
     result[key] = Object.fromEntries(fields.filter(field => typeof source[field] === 'string'
       || (field === 'count' && typeof source[field] === 'number')).map(field => [field, source[field]]));
+  }
+  const runSettings = curateRunSettings(value.run_settings);
+  if (runSettings) result.run_settings = runSettings;
+  const usage = curateDeskUsage(value.desk_usage);
+  if (usage) result.desk_usage = usage;
+  return result;
+}
+
+export function curateDeskUsage(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const numeric = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
+  const result: Record<string, unknown> = Object.fromEntries(
+    ['policy_version', 'budget_usd', 'spent_usd', 'reserved_usd'].map(k => [k, numeric(value[k])]));
+  result.stop_reason = typeof value.stop_reason === 'string' ? value.stop_reason.slice(0, 160) : null;
+  for (const group of ['attempts', 'tools']) {
+    const rows = value[group];
+    result[group] = Array.isArray(rows) ? rows.slice(0, 160).filter(isRecord).map(row => {
+      const clean: Record<string, unknown> = {};
+      for (const key of ['tier', 'node', 'status', 'name']) {
+        if (typeof row[key] === 'string') clean[key] = row[key].slice(0, 100);
+      }
+      for (const key of ['reserved_usd', 'elapsed_ms', 'input_tokens', 'output_tokens', 'reasoning_tokens', 'cached_tokens', 'cost_usd']) {
+        if (key in row) clean[key] = numeric(row[key]);
+      }
+      if (group === 'tools') clean.cached = row.cached === true;
+      return clean;
+    }) : [];
+  }
+  return result;
+}
+
+/** Explicit safe projection of upstream run_settings(): scalars, string lists and
+ * string-string vendor maps only. Mirrors the supervisor allowlist; unknown keys
+ * are dropped, never passed through. */
+export function curateRunSettings(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const result: Record<string, unknown> = {};
+  for (const key of ['version', 'llm_provider', 'deep_think_provider', 'deep_think_llm',
+    'quick_think_provider', 'quick_think_llm', 'max_debate_rounds', 'max_risk_discuss_rounds',
+    'output_language', 'desk_policy_version', 'max_tool_rounds']) {
+    const field = value[key];
+    if (typeof field === 'string' || typeof field === 'number' || typeof field === 'boolean' || field == null) {
+      result[key] = field;
+    }
+  }
+  if (Array.isArray(value.analysts) && value.analysts.every((item): item is string => typeof item === 'string')) {
+    result.analysts = [...value.analysts];
+  }
+  for (const key of ['data_vendors', 'tool_vendors']) {
+    const field = value[key];
+    if (isRecord(field) && Object.entries(field).every(([k, v]) => typeof k === 'string' && typeof v === 'string')) {
+      result[key] = { ...field };
+    }
   }
   return result;
 }

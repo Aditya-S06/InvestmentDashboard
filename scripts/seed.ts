@@ -5,8 +5,8 @@ import { upsertDefaultWatchlist } from '../lib/seed-watchlist';
 const prisma = new PrismaClient();
 
 async function main() {
-  if ((process.env.SEED_DEMO_USER || '').trim().toLowerCase() === 'false') {
-    console.log('SEED_DEMO_USER=false — skipping the john@doe.com demo account');
+  if ((process.env.SEED_DEMO_USER || '').trim().toLowerCase() !== 'true') {
+    console.log('Demo seed disabled — set SEED_DEMO_USER=true explicitly for local development');
     return;
   }
 
@@ -22,7 +22,7 @@ async function main() {
     },
   });
 
-  const count = await upsertDefaultWatchlist(user.id);
+  const count = await upsertDefaultWatchlist(user.id, prisma);
   console.log(`Seeded ${count} starter watchlist tickers for john@doe.com`);
   console.log('Delete this demo account before exposing the app beyond localhost.');
 }

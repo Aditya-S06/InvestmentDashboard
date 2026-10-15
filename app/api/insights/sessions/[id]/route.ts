@@ -1,3 +1,4 @@
+import { withMutationProtection } from '@/lib/security/mutation';
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -34,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
   });
 }
 
-export async function DELETE(_req: NextRequest, { params }: RouteContext) {
+async function DELETEHandler(_req: NextRequest, { params }: RouteContext) {
   const auth = await requireInsightsAccess();
   if (auth instanceof NextResponse) return auth;
 
@@ -48,3 +49,5 @@ export async function DELETE(_req: NextRequest, { params }: RouteContext) {
   await prisma.insightSession.delete({ where: { id: params.id } });
   return NextResponse.json({ success: true });
 }
+
+export const DELETE = withMutationProtection(DELETEHandler);

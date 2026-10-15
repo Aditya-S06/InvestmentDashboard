@@ -87,3 +87,5 @@ it('report tabs expose one selected tab, linked panel and wrapping arrow/Home/En
   elements(render()).find(node => node.type === 'select').props.onChange({ target: { value: 'MSFT' } });
   selected(0);
 });
+
+vi.mock('@/lib/http/api-fetch', () => ({ apiFetch: (...args: Parameters<typeof fetch>) => fetch(...args) }));

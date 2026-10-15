@@ -13,7 +13,12 @@
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "test": "vitest run",
-    "setup": "prisma generate && prisma db push && prisma db seed"
+    "setup": "node scripts/setup-database.cjs",
+    "security:init-key": "node scripts/init-key-encryption.cjs",
+    "security:encrypt-keys": "tsx --require ./scripts/operator-env.cjs scripts/encrypt-api-keys.ts",
+    "security:harden-db": "node scripts/harden-database.cjs",
+    "security:verify-identity": "tsx scripts/verify-identity-db.ts",
+    "security:activate-db": "node scripts/harden-database.cjs --activate"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/safe-seed.ts"

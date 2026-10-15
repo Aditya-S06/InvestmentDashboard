@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -187,7 +189,7 @@ export default function DeskRunPage() {
     setCancelling(true);
     setCancelError(null);
     try {
-      const res = await fetch(`/api/desk/runs/${encodeURIComponent(id)}`, { method: 'DELETE', signal });
+      const res = await apiFetch(`/api/desk/runs/${encodeURIComponent(id)}`, { method: 'DELETE', signal });
       if (signal.aborted) return;
       if (!res.ok) throw new Error('Cancellation request failed');
       const data: unknown = await res.json();

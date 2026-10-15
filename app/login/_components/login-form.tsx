@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/http/api-fetch';
+
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
@@ -10,6 +12,7 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,7 +26,7 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
 
     try {
       if (!isLogin) {
-        const res = await fetch('/api/signup', {
+        const res = await apiFetch('/api/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password, name }),
@@ -39,6 +42,7 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
       const result = await signIn('credentials', {
         email,
         password,
+        code,
         redirect: false,
       });
 
@@ -135,6 +139,10 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
             </div>
           </div>
 
+          {isLogin && <label className="block text-xs text-muted-foreground">Authenticator or recovery code (if enabled)
+            <input value={code} onChange={e => setCode(e.target.value)} autoComplete="one-time-code" maxLength={64}
+              className="mt-1 w-full px-3 py-2.5 bg-secondary border border-border rounded-md text-sm text-foreground" />
+          </label>}
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           <button
