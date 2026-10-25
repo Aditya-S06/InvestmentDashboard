@@ -12,7 +12,7 @@ async function POSTHandler(request: Request) {
   try {
     const body = await request.json();
     const ticket = parseTicket(body);
-    const result = await previewOrder(auth.userId, ticket, requestIp());
+    const result = await previewOrder(auth.userId, ticket, await requestIp());
     return NextResponse.json(result);
   } catch (error) {
     const mapped = tradingErrorResponse(error);

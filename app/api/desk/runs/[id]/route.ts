@@ -7,17 +7,17 @@ import { cancelDeskRun, finalizeDeskRun, hydrateDeskRun } from '@/lib/desk/runne
 import { prisma } from '@/lib/prisma';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(_req: NextRequest, { params }: RouteContext) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
-  await finalizeDeskRun(params.id, auth.userId);
+  await finalizeDeskRun((await params).id, auth.userId);
 
   const run = await prisma.deskRun.findFirst({
-    where: { id: params.id, userId: auth.userId },
+    where: { id: (await params).id, userId: auth.userId },
   });
 
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 });
@@ -29,7 +29,7 @@ async function DELETEHandler(_req: NextRequest, { params }: RouteContext) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
-  const run = await cancelDeskRun(params.id, auth.userId);
+  const run = await cancelDeskRun((await params).id, auth.userId);
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 });
 
   return NextResponse.json(hydrateDeskRun(run));

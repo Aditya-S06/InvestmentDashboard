@@ -3,13 +3,7 @@ const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
   output: process.env.NEXT_OUTPUT_MODE,
   productionBrowserSourceMaps: false,
-  experimental: {
-    // Trace this app only; the parent folder holds unrelated sibling projects.
-    outputFileTracingRoot: __dirname,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  outputFileTracingRoot: __dirname,
   typescript: {
     ignoreBuildErrors: false,
   },

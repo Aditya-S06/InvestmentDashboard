@@ -24,6 +24,7 @@ def offline(*args, **kwargs):
     raise AssertionError('Network forbidden in checkpoint fixture')
 socket.socket.connect = offline
 
+from desk_policy import config_policy
 from desk_checkpoint import (
     DEFAULT_OPENROUTER_BASE_URL,
     compute_thread_id,
@@ -45,7 +46,7 @@ if len(sys.argv) > 2 and sys.argv[2] == 'fail-after-ready':
 
 user = Path(sys.argv[1])
 value = dict(ticker='AAPL', asOf='2026-10-01', depth='fast', analysts=['market'], assetType='stock')
-settings = dict(desk_policy_version=1, max_tool_rounds=3, deep_think_llm='fixture-deep', quick_think_llm='fixture-quick', output_language='English',
+settings = dict(config_policy(value['depth']), deep_think_llm='fixture-deep', quick_think_llm='fixture-quick', output_language='English',
                 benchmark_ticker=None, temperature=None, llm_max_retries=None, max_tokens=None)
 remember(user, value, settings, DEFAULT_OPENROUTER_BASE_URL)
 thread = compute_thread_id(value, settings, DEFAULT_OPENROUTER_BASE_URL)

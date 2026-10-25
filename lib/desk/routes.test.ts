@@ -22,7 +22,7 @@ import { emptyDeskResults, packDeskResults } from './report';
 
 let root: string;
 let run: any;
-const context = { params: { id: 'run-one' } };
+const context = { params: Promise.resolve({ id: 'run-one' }) };
 const req = (suffix: string, method = 'GET', body?: unknown) => new NextRequest(`http://localhost/api/desk/runs/run-one${suffix}`, {
   method, ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}),
 });

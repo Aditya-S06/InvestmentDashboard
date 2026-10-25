@@ -1,9 +1,9 @@
 // Existing deployments use Supabase's migration ledger. New Prisma-managed installs
 // should use prisma migrate deploy instead. This applies ONLY the additive limiter migration.
 const fs = require('node:fs');
-const { PrismaClient } = require('@prisma/client');
+const { createPrismaClient } = require('./prisma-client.cjs');
 require('dotenv').config();
-const db = new PrismaClient();
+const db = createPrismaClient();
 const version = '20261011000000';
 const name = 'shared_auth_rate_limit';
 const sql = fs.readFileSync(`prisma/migrations/${version}_${name}/migration.sql`, 'utf8');

@@ -1,11 +1,12 @@
 import 'server-only';
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '@/lib/database/client';
 
 // This role has access to identity records/counters only, never watchlists, keys, research or orders.
 const globals = globalThis as unknown as { identityDatabase?: PrismaClient };
-const base = globals.identityDatabase ?? new PrismaClient({
-  datasources: { db: { url: process.env.AUTH_DATABASE_URL || 'postgresql://missing:missing@127.0.0.1:1/missing' } },
-});
+const base = globals.identityDatabase ?? createPrismaClient(
+  process.env.AUTH_DATABASE_URL || 'postgresql://missing:missing@127.0.0.1:1/missing',
+);
 if (process.env.NODE_ENV !== 'production') globals.identityDatabase = base;
 let checked: Promise<void> | undefined;
 async function assertRole() {

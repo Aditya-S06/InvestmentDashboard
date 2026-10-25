@@ -15,6 +15,17 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.env
+.npmrc
+.yarnrc
+.yarnrc.yml
+.pypirc
+.netrc
+_netrc
+.git-credentials
+secrets/
+client_secret*.json
+token.txt
 conf/*
 !conf/*.example
 # Leftover local Webull token tree (not covered by conf/*)
@@ -25,6 +36,10 @@ data/youtube_processed.json
 
 # Next.js
 .next/
+.build/
+.tmp/
+.cache/
+.vercel/
 out/
 build/
 dist/
@@ -44,6 +59,8 @@ setup-log.txt
 # Testing & coverage
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
 
 # TypeScript
 *.tsbuildinfo
@@ -63,6 +80,14 @@ Desktop.ini
 
 # Docker / local data
 docker-data/
+.data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.dump
 
 # Trading Desk run artifacts (local only)
 .data/desk/
@@ -87,6 +112,7 @@ home/
 !.project_instructions.md
 !project_instructions.md
 # AI Insights harness (confidential agent instructions — keep local only)
+lib/insights/harness/
 lib/insights/harness/system.md
 lib/insights/harness/output.md
 lib/insights/harness/skills/
@@ -118,6 +144,8 @@ scripts/_smoke*.py
 *.pem
 *.key
 *.p12
+*.pfx
+*.ppk
 credentials.json
 secrets.json
 

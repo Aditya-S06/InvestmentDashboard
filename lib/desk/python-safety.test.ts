@@ -40,7 +40,7 @@ it('real Python tool/checkpoint output stays safe in exports; cp1252 emitter/pum
     mocks.find.mockImplementation(async ({ where }) => where.id === run.id && where.userId === run.userId ? run : null);
     for (const format of ['md', 'zip']) {
       const response = await download(new NextRequest(`http://localhost/api/desk/runs/run-one/download?format=${format}`),
-        { params: { id: run.id } });
+        { params: Promise.resolve({ id: run.id }) });
       expect(response.status).toBe(200);
       // ZIP entries are stored uncompressed by the production exporter.
       const bytes = Buffer.from(await response.arrayBuffer());

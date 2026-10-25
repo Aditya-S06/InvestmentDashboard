@@ -5,7 +5,8 @@
  * Usage (with .env pointing at Supabase):
  *   npx tsx --require dotenv/config scripts/migrate-local-to-supabase.ts
  */
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { createPrismaClient } from '../lib/database/client';
 import fs from 'fs';
 import path from 'path';
 
@@ -42,13 +43,9 @@ async function main() {
     throw new Error('DIRECT_URL / DATABASE_URL missing from .env (Supabase target)');
   }
 
-  const local = new PrismaClient({
-    datasources: { db: { url: LOCAL_URL } },
-  });
+  const local = createPrismaClient(LOCAL_URL);
   // Prefer session/direct URL for multi-step writes (avoids pgbouncer issues)
-  const cloud = new PrismaClient({
-    datasources: { db: { url: directUrl } },
-  });
+  const cloud = createPrismaClient(directUrl);
 
   try {
     const localUser = await local.user.findUnique({

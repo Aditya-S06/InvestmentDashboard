@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ upsert: vi.fn(), disconnect: vi.fn(), watchlist: vi.fn(), hash: vi.fn() }));
-vi.mock('@prisma/client', () => ({ PrismaClient: class {
-  user = { upsert: mocks.upsert };
-  $disconnect = mocks.disconnect;
-} }));
+vi.mock('../lib/database/client', () => ({ createPrismaClient: () => ({
+  user: { upsert: mocks.upsert },
+  $disconnect: mocks.disconnect,
+}) }));
 vi.mock('bcryptjs', () => ({ default: { hash: mocks.hash } }));
 vi.mock('../lib/seed-watchlist', () => ({ upsertDefaultWatchlist: mocks.watchlist }));
 

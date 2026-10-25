@@ -53,11 +53,11 @@ export function PriceChart({ data, isPositive }: PriceChartProps) {
         />
         <Tooltip
           contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #2a2a3e', borderRadius: '6px', fontSize: 11 }}
-          labelFormatter={(v: string) => v}
-          formatter={(value: any, name: string) => {
+          labelFormatter={(label) => String(label ?? '')}
+          formatter={(value, name) => {
             if (name === 'close') return [`$${Number(value)?.toFixed?.(2) ?? '0'}`, 'Price'];
             if (name === 'volume') return [(Number(value) / 1e6)?.toFixed?.(1) + 'M', 'Volume'];
-            return [value, name];
+            return [value ?? '', name ?? ''];
           }}
         />
         <Bar dataKey="volume" fill="#ffffff08" yAxisId="right" />

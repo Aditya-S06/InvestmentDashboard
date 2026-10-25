@@ -10,6 +10,10 @@ import { PRIVATE_FILES, checkPrivate, provisionPrivate } from '../scripts/provis
 export const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Explicit intended additions only: no recursive workspace copy or ignored files.
 export const additions = [
+  '.nvmrc', '.node-version', 'eslint.config.mjs', 'prisma.config.ts',
+  'lib/database/client.ts', 'lib/database/client.test.ts', 'scripts/prisma-client.cjs',
+  'test/dependency-runtime.test.mjs',
+  'lib/webull/http.test.ts',
   'lib/identity-db.ts', 'lib/database/scoped-client.ts', 'lib/auth/identity.ts',
   'lib/auth/identity.test.ts', 'lib/auth/totp.ts', 'lib/auth/account-service.ts', 'lib/auth/account-service.test.ts',
   'app/api/account/security/route.ts', 'app/dashboard/security/page.tsx',

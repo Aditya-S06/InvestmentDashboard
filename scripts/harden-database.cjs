@@ -2,7 +2,7 @@
 // configuration. Activation is separate so integration checks can run before cutover.
 const fs = require('node:fs');
 const { randomBytes } = require('node:crypto');
-const { PrismaClient } = require('@prisma/client');
+const { createPrismaClient } = require('./prisma-client.cjs');
 const dotenv = require('dotenv');
 const envText = fs.readFileSync('.env', 'utf8');
 const env = dotenv.parse(envText);
@@ -29,12 +29,12 @@ async function main() {
     write(operatorFile, serialized({ DATABASE_URL: env.DATABASE_URL, DIRECT_URL: env.DIRECT_URL || env.DATABASE_URL }));
   }
   const operator = dotenv.parse(fs.readFileSync(operatorFile));
-  const db = new PrismaClient({ datasources: { db: { url: operator.DATABASE_URL } } });
+  const db = createPrismaClient(operator.DATABASE_URL);
   try {
     if (process.argv.includes('--activate')) {
       const pending = dotenv.parse(fs.readFileSync(pendingFile));
       for (const [key, role] of [['DATABASE_URL','oracle_runtime'],['AUTH_DATABASE_URL','oracle_identity']]) {
-        const check = new PrismaClient({ datasources: { db: { url: pending[key] } } });
+        const check = createPrismaClient(pending[key]);
         try {
           const rows = await check.$queryRaw`SELECT current_user AS name, rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb AS elevated FROM pg_roles WHERE rolname=current_user`;
           if (rows[0]?.name !== role || rows[0].elevated) throw new Error('Unsafe role');

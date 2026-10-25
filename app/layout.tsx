@@ -26,11 +26,11 @@ export const metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
-        <Providers nonce={headers().get('x-nonce') || undefined}>
+        <Providers nonce={(await headers()).get('x-nonce') || undefined}>
           {children}
           <Toaster />
           <ChunkLoadErrorHandler />

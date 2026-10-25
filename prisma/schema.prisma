@@ -1,12 +1,10 @@
 generator client {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  // Direct (non-pooler) connection for Prisma migrations / db push on Supabase
-  directUrl = env("DIRECT_URL")
 }
 
 // Only the restricted identity connection can access authentication counters.

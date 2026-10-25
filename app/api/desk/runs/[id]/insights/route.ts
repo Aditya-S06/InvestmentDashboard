@@ -10,16 +10,16 @@ import { serverError } from '@/lib/http/errors';
 import { prisma } from '@/lib/prisma';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 async function POSTHandler(req: Request, { params }: RouteContext) {
   const auth = await requireDeskAccess();
   if (auth instanceof NextResponse) return auth;
 
-  await finalizeDeskRun(params.id, auth.userId);
+  await finalizeDeskRun((await params).id, auth.userId);
   const run = await prisma.deskRun.findFirst({
-    where: { id: params.id, userId: auth.userId },
+    where: { id: (await params).id, userId: auth.userId },
   });
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 });
 

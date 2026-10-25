@@ -1,9 +1,9 @@
 // Explicit operator integration check; only writes and removes a unique synthetic limiter bucket.
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../lib/database/client';
 import { createHmac, randomUUID } from 'node:crypto';
 import { consumeDatabaseRateLimit } from '../lib/auth/rate-limit-db';
 import { decryptApiKey } from '../lib/security/api-key-crypto';
-const clients = [new PrismaClient(), new PrismaClient(), new PrismaClient()];
+const clients = [createPrismaClient(), createPrismaClient(), createPrismaClient()];
 const input = `security-check:${randomUUID()}`;
 const limit = 5, windowMs = 60000;
 const key = createHmac('sha256', process.env.NEXTAUTH_SECRET || '').update(JSON.stringify([input, limit, windowMs])).digest('hex');

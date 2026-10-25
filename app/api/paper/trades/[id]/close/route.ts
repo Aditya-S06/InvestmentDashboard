@@ -14,7 +14,7 @@ import {
 import { executePaperFill, updateTradeExcursion } from '@/lib/paper/service';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 async function POSTHandler(request: Request, { params }: RouteContext) {
@@ -23,7 +23,7 @@ async function POSTHandler(request: Request, { params }: RouteContext) {
   try {
     const body = await readJsonObject(request);
     const current = await prisma.paperTrade.findFirst({
-      where: { id: params.id, userId, status: 'OPEN', qty: { gt: 0 } },
+      where: { id: (await params).id, userId, status: 'OPEN', qty: { gt: 0 } },
       select: { id: true, side: true, qty: true },
     });
     if (!current) return NextResponse.json({ error: 'Open trade not found' }, { status: 404 });

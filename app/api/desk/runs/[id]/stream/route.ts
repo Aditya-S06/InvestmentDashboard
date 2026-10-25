@@ -19,7 +19,7 @@ import { prisma } from '@/lib/prisma';
 import { DESK_RECONCILE_FRESH_MS } from '@/lib/desk/limits';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
   if (auth instanceof NextResponse) return auth;
 
   const run = await prisma.deskRun.findFirst({
-    where: { id: params.id, userId: auth.userId },
+    where: { id: (await params).id, userId: auth.userId },
     select: { id: true, userId: true, status: true },
   });
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 });

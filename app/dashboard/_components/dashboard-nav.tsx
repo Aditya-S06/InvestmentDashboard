@@ -12,7 +12,7 @@ import {
   LogOut,
   Sparkles,
   WalletCards,
-  Youtube,
+  SquarePlay,
 } from 'lucide-react';
 import { useBrokerAccess } from './use-broker-access';
 
@@ -20,7 +20,7 @@ const LINKS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
   { href: '/dashboard/insights', label: 'Insights', icon: Sparkles },
   { href: '/dashboard/desk', label: 'Trading Desk', icon: LineChart },
-  { href: '/dashboard/youtube-analysis', label: 'YouTube', icon: Youtube },
+  { href: '/dashboard/youtube-analysis', label: 'YouTube', icon: SquarePlay },
   { href: '/dashboard/paper', label: 'Simulate', icon: WalletCards },
   { href: '/dashboard/journal', label: 'Journal', icon: BookOpenCheck },
 ];

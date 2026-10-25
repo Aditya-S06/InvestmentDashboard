@@ -25,7 +25,7 @@ import { getBookEquityForUser } from '@/lib/paper/service';
 import type { PaperSide } from '@/lib/paper/types';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 function jsonValue(value: unknown, field: string): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
@@ -43,7 +43,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
   if (userId instanceof NextResponse) return userId;
   try {
     const trade = await prisma.paperTrade.findFirst({
-      where: { id: params.id, userId },
+      where: { id: (await params).id, userId },
       include: { fills: { orderBy: [{ filledAt: 'asc' }, { createdAt: 'asc' }] } },
     });
     if (!trade) return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
@@ -59,7 +59,7 @@ async function PATCHHandler(request: Request, { params }: RouteContext) {
   try {
     const body = await readJsonObject(request);
     const trade = await prisma.paperTrade.findFirst({
-      where: { id: params.id, userId },
+      where: { id: (await params).id, userId },
       include: { account: true, fills: { select: { id: true } } },
     });
     if (!trade) return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
@@ -207,7 +207,7 @@ async function DELETEHandler(_request: Request, { params }: RouteContext) {
   if (userId instanceof NextResponse) return userId;
   try {
     const trade = await prisma.paperTrade.findFirst({
-      where: { id: params.id, userId },
+      where: { id: (await params).id, userId },
       select: { id: true, status: true, _count: { select: { fills: true } } },
     });
     if (!trade) return NextResponse.json({ error: 'Trade not found' }, { status: 404 });

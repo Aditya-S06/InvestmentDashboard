@@ -14,7 +14,7 @@ import { executePaperFill, updateTradeExcursion } from '@/lib/paper/service';
 import type { FillSide, FillType } from '@/lib/paper/types';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 const FILL_SIDES = new Set<FillSide>(['BUY', 'SELL']);
@@ -30,7 +30,7 @@ async function POSTHandler(request: Request, { params }: RouteContext) {
     if (!FILL_SIDES.has(side)) throw new Error('side must be BUY or SELL');
     if (!FILL_TYPES.has(type)) throw new Error('type must be ENTRY, ADD, REDUCE, or EXIT');
 
-    let trade = await executePaperFill(userId, params.id, {
+    let trade = await executePaperFill(userId, (await params).id, {
       side,
       type,
       qty: body.qty,

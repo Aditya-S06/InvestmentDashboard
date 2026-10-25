@@ -27,7 +27,7 @@ Live market data is sourced from [Yahoo Finance](https://finance.yahoo.com/) via
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Next.js 14, React 18, Tailwind CSS, Recharts |
+| Frontend | Next.js 16, React 19, Tailwind CSS 4, Recharts 3 |
 | Backend | Next.js API routes, NextAuth.js v4 |
 | Database | Supabase Postgres + Prisma ORM |
 | Market data | Python 3, `yfinance`, `webull-openapi-python-sdk`, `pytz` |
@@ -52,10 +52,79 @@ Browser → Next.js (dashboard, auth)  [runs on your machine or a host]
 
 ### Prerequisites and clean-checkout installation
 
-Use Node 20+, Python 3.10+ and a persistent self-hosted machine. Run commands from
+Use Node 24.22.1 or a newer patched 24.x release, Python 3.10+ and a persistent self-hosted machine. Run commands from
 this repository root. Private Insights modules are required at compile/import time
 even if you do not use Insights: obtain the matching operator-owned bundle below.
 The public templates alone do **not** implement the research engine or key resolver.
+
+The Node version-manager files select 24.22.1, the 24.x security release from
+October 21, 2026. Install that runtime on every development and deployment host;
+changing the repository files does not upgrade an already installed Node binary.
+Check `node --version` before installing dependencies or restarting the service.
+This runtime requirement alone does not update or audit npm or Python packages.
+
+#### Dependency upgrade in progress (October 22, 2026)
+
+The operator installed the upgraded dependencies and generated Prisma Client
+7.10.1 successfully. After compatible audit fixes, the supplied production-only
+audit reports zero vulnerabilities; the full audit still reports **five high
+findings** from the development-only braces dependency chain below. The last
+verified active Node binary was still 22.20.0. Do not deploy this working tree yet.
+The installed manifest includes Vitest 5's required Vite peer and selects the
+newest stable TypeScript within the ESLint parser's supported range (below 6.1),
+rather than the incompatible TypeScript 7 release. The current manifest and
+lockfile dependency declarations are synchronized.
+Prisma CLI/client/adapter target 7.10.1 together, not the reported 8.0 release
+candidate. Node type definitions stay on the 24.x runtime line.
+
+After installing Node 24.22.1 or a newer patched 24.x release, open a new terminal
+and run these commands yourself from the repository root:
+
+```powershell
+node --version
+npm.cmd install --ignore-scripts
+npm.cmd audit fix --ignore-scripts
+node node_modules/prisma/build/index.js generate
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd audit --json
+npm.cmd audit --omit=dev --json
+```
+
+Do not use `--force`, `--legacy-peer-deps`, or `npm audit fix --force` to hide
+compatibility errors. Share sanitized errors for follow-up. Commit the generated
+lockfile only after the checks pass. Browser acceptance of charts, dark mode,
+authentication and CSP, plus operator-only database role/isolation checks, remain
+required before deploying. No live broker order is part of acceptance testing.
+
+The operator's audit fixes cleared the findings for baseline-browser-mapping,
+Browserslist, brace-expansion and esbuild. The remaining braces/micromatch/
+fast-glob chain comes through Next's ESLint plugin; the audit's suggested
+eslint-config-next 14 downgrade is not an acceptable automatic fix for Next 16.
+Determine whether upstream has published a compatible patch before changing
+that chain. Most listed paths are development tools, but baseline-browser-mapping
+is also a direct dependency of Next, so a production-only audit is required.
+Vitest uses an explicit automatic JSX transform for Vite 8; Next's tsconfig
+continues to preserve JSX for the application build. The three previously
+failing JSX suites pass with this setting. The Python checkpoint fixture now
+derives its budget-policy version from the production policy rather than
+hard-coding an obsolete version. Rerun the full acceptance suite externally;
+do not skip ownership checks or expose raw subprocess stderr to work around
+fixture failures.
+
+An audit finding describes a vulnerable dependency, not proof that this app
+has been compromised. A clean audit also does not prove complete security.
+
+Prisma 7 reads connection settings from `prisma.config.ts`; that file deliberately
+does not load `.env`. The `db:push`, `db:seed` and `setup` npm commands perform
+their existing explicit operator environment loading. For raw migration CLI
+commands, supply the operator environment outside the agent, for example with
+`node --require dotenv/config node_modules/prisma/build/index.js migrate deploy`.
+Do not run migrations just to refresh the generated client.
+
+Python packages and the pinned TradingAgents submodule are not upgraded by npm.
+Their installed-version and security inventory is still pending; do not assume
+the permissive ranges in `requirements.txt` update an existing virtual environment.
 
 Windows PowerShell:
 

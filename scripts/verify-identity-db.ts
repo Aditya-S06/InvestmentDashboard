@@ -2,12 +2,12 @@
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../lib/database/client';
 import { parse } from 'dotenv';
 import { scopedPrisma } from '../lib/database/scoped-client';
 const operator = parse(fs.readFileSync('.env.migrations'));
 const runtime = parse(fs.readFileSync('.env.runtime.pending'));
-const make = (url: string) => new PrismaClient({ datasources: { db: { url } } });
+const make = (url: string) => createPrismaClient(url);
 const admin = make(operator.DATABASE_URL), base = make(runtime.DATABASE_URL), identity = make(runtime.AUTH_DATABASE_URL);
 const a = `security_${randomUUID()}`, b = `security_${randomUUID()}`;
 const alice = scopedPrisma(base, async () => ({ userId:a, sessionVersion:0, admin:false }));

@@ -1,11 +1,12 @@
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '@/lib/database/client';
 import { scopedPrisma } from '@/lib/database/scoped-client';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const base = globalForPrisma.prisma ?? new PrismaClient();
+const base = globalForPrisma.prisma ?? createPrismaClient();
 export const prisma = scopedPrisma(base, async () => {
   // Lazy imports break the auth -> identity database cycle and resolve the current request afresh.
   const [{ getServerSession }, { authOptions }, { isInsightsAdmin }] = await Promise.all([

@@ -1,8 +1,8 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../lib/database/client';
 import bcrypt from 'bcryptjs';
 import { upsertDefaultWatchlist } from '../lib/seed-watchlist';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 async function main() {
   if ((process.env.SEED_DEMO_USER || '').trim().toLowerCase() !== 'true') {

@@ -13,7 +13,7 @@ async function POSTHandler(_request: Request, context: Ctx) {
   if ('error' in auth) return auth.error;
   try {
     const { clientOrderId } = await context.params;
-    const result = await cancelOrder(auth.userId, clientOrderId, requestIp());
+    const result = await cancelOrder(auth.userId, clientOrderId, await requestIp());
     return NextResponse.json(result);
   } catch (error) {
     const mapped = tradingErrorResponse(error);

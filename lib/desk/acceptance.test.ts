@@ -68,7 +68,7 @@ let children: ChildProcess[];
 let owned: OwnedChildren;
 let controllers: AbortController[];
 const input = { tickers: ['AAPL', 'MSFT'], asOf: '2026-10-01', depth: 'fast', analysts: ['market'], assetType: 'stock', checkpoint: false };
-const context = (id: string) => ({ params: { id } });
+const context = (id: string) => ({ params: Promise.resolve({ id }) });
 const request = (url: string, method = 'GET', body?: unknown, signal?: AbortSignal) => new NextRequest(`http://localhost${url}`, {
   method, signal, ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
 });

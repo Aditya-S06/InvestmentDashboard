@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/http/api-fetch';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Settings, Youtube } from 'lucide-react';
+import { ArrowLeft, Loader2, Settings, SquarePlay } from 'lucide-react';
 import { useWatchlist } from '../../_components/watchlist-provider';
 import { DetailModal } from '../../_components/detail-modal';
 import { SettingsModal } from '../../_components/settings-modal';
@@ -253,7 +253,7 @@ export function YoutubeAnalysisClient() {
             </Link>
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-8 rounded-md bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
-                <Youtube className="w-4 h-4 text-red-400" />
+                <SquarePlay className="w-4 h-4 text-red-400" />
               </div>
               <div className="min-w-0">
                 <h1 className="font-display font-bold text-base tracking-tight truncate">YouTube Analysis</h1>
@@ -360,7 +360,7 @@ export function YoutubeAnalysisClient() {
             </div>
           ) : items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-10 text-center space-y-2">
-              <Youtube className="w-8 h-8 mx-auto text-muted-foreground" />
+              <SquarePlay className="w-8 h-8 mx-auto text-muted-foreground" />
               <p className="text-sm text-muted-foreground max-w-md mx-auto">{emptyHint}</p>
             </div>
           ) : (

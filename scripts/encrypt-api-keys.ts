@@ -1,7 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../lib/database/client';
 import { decryptApiKey, encryptApiKey, isEncryptedApiKey } from '../lib/security/api-key-crypto';
 
-const db = new PrismaClient();
+const db = createPrismaClient();
 const apply = process.argv.includes('--apply');
 
 async function main() {

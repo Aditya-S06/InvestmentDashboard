@@ -1,13 +1,16 @@
-import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   // Unit tests use sentinel environments and must never read local .env files.
   envDir: false,
+  oxc: {
+    jsx: { runtime: 'automatic' },
+  },
   resolve: {
     alias: {
-      'server-only': path.resolve(__dirname, 'test/stubs/server-only.ts'),
-      '@': path.resolve(__dirname),
+      'server-only': fileURLToPath(new URL('./test/stubs/server-only.ts', import.meta.url)),
+      '@': fileURLToPath(new URL('.', import.meta.url)),
     },
   },
   test: {

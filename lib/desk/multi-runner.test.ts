@@ -87,7 +87,7 @@ describe('durable reconciliation preserves desk-8 results', () => {
       queueMicrotask(() => { child.stdout.end(response); child.emit('close', 0); });
       return child;
     });
-    await Promise.all(Array.from({ length: 10 }, () => detail(new NextRequest('http://localhost/api/desk/runs/run-one'), { params: { id: input.id } })));
+    await Promise.all(Array.from({ length: 10 }, () => detail(new NextRequest('http://localhost/api/desk/runs/run-one'), { params: Promise.resolve({ id: input.id }) })));
     console.log('desk16 ten detail readers, three active runs', { helpers: mocks.spawn.mock.calls.length,
       dbReads: mocks.findFirst.mock.calls.length, dbLists: mocks.findMany.mock.calls.length });
     expect(mocks.spawn).toHaveBeenCalledTimes(1);

@@ -338,7 +338,8 @@ export function curateDeskUsage(value: unknown): Record<string, unknown> | null 
     result[group] = Array.isArray(rows) ? rows.slice(0, 160).filter(isRecord).map(row => {
       const clean: Record<string, unknown> = {};
       for (const key of ['tier', 'node', 'status', 'name']) {
-        if (typeof row[key] === 'string') clean[key] = row[key].slice(0, 100);
+        const field = row[key];
+        if (typeof field === 'string') clean[key] = field.slice(0, 100);
       }
       for (const key of ['reserved_usd', 'elapsed_ms', 'input_tokens', 'output_tokens', 'reasoning_tokens', 'cached_tokens', 'cost_usd']) {
         if (key in row) clean[key] = numeric(row[key]);

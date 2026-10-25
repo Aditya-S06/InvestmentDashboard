@@ -434,7 +434,7 @@ function OverviewTab({ account, analytics, currency, positions, onSelectTrade, o
                   <CartesianGrid stroke="#ffffff0a" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#777' }} />
                   <YAxis tick={{ fontSize: 9, fill: '#777' }} width={65} tickFormatter={(value) => `$${Math.round(value / 1000)}k`} />
-                  <Tooltip contentStyle={{ background: '#171720', border: '1px solid #2a2a35', borderRadius: 8, fontSize: 11 }} formatter={(value: number) => [money(value, currency), 'Equity']} />
+                  <Tooltip contentStyle={{ background: '#171720', border: '1px solid #2a2a35', borderRadius: 8, fontSize: 11 }} formatter={(value) => [money(Number(value ?? 0), currency), 'Equity']} />
                   <Area type="monotone" dataKey="equity" stroke="#00c853" fill="url(#journalEquity)" strokeWidth={2} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>

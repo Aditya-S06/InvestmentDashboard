@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, createHmac } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../lib/database/client';
 import bcrypt from 'bcryptjs';
 import { config, parse } from 'dotenv';
 import { totp } from '../lib/auth/totp';
@@ -15,7 +15,7 @@ const id=`security_http_${randomUUID()}`, email=`${id}@invalid.test`;
 const password=randomBytes(24).toString('hex'), newPassword=randomBytes(24).toString('hex');
 const authSecret=randomBytes(48).toString('hex');
 const operator=parse(readFileSync('.env.migrations'));
-const db=new PrismaClient({datasources:{db:{url:operator.DATABASE_URL}}});
+const db=createPrismaClient(operator.DATABASE_URL);
 const dataRoot=path.resolve('.data','security-http-fixture');
 const userDir=path.join(dataRoot,id);
 const server=spawn(process.execPath,[require.resolve('next/dist/bin/next'),'start','--hostname','127.0.0.1','--port','3102'],{

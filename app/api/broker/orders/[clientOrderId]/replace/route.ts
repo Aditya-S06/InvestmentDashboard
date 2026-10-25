@@ -21,7 +21,7 @@ async function POSTHandler(request: Request, context: Ctx) {
         quantity: body.quantity != null ? Number(body.quantity) : undefined,
         limitPrice: body.limitPrice != null ? Number(body.limitPrice) : undefined,
       },
-      requestIp(),
+      await requestIp(),
     );
     return NextResponse.json(result);
   } catch (error) {

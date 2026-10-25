@@ -27,7 +27,7 @@ const collect = async (options: Partial<Parameters<typeof followDeskJsonl>[1]> =
 const request = (query = '', headers?: HeadersInit, signal?: AbortSignal) => new NextRequest(
   `http://localhost/api/desk/runs/run-one/stream${query}`, { headers, signal },
 );
-const get = (req = request()) => GET(req, { params: { id: 'run-one' } });
+const get = (req = request()) => GET(req, { params: Promise.resolve({ id: 'run-one' }) });
 
 beforeEach(() => {
   vi.resetAllMocks();
